@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/ksh -x
 #
 # Copyright 2025 The OpenSSL Project Authors. All Rights Reserved.
 #
@@ -97,7 +97,8 @@ function install_openssl {
 	if [[ -z ${VERSION} ]] ; then
 		VERSION='openssl-master'
 	fi
-	./Configure --prefix="${INSTALL_ROOT}/${VERSION}" || exit 1
+	./Configure --prefix="${INSTALL_ROOT}/${VERSION}" \
+		--libdir="${INSTALL_ROOT}/${VERSION}/lib" || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 }
@@ -135,7 +136,9 @@ function install_wolfssl {
 	AUTOCONF_VERSION=2.72 AUTOMAKE_VERSION=1.16 ./autogen.sh || exit 1
 
 	./configure --prefix="${INSTALL_ROOT}/wolfssl-${VERSION}" \
-	    --enable-apachehttpd || exit 1
+	    --enable-apachehttpd \
+	    --enable-postauth || exit 1
+
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 }
@@ -195,7 +198,7 @@ function install_apache {
 	typeset BASENAME='httpd'
 	typeset DOWNLOAD_FILE="${BASENAME}-${VERSION}.${SUFFIX}"
 	typeset BUILD_DIR="${BASENAME}-${VERSION}"
-	typeset DOWNLOAD_URL='https://dlcdn.apache.org/httpd'
+	typeset DOWNLOAD_URL='https://archive.apache.org/dist/httpd'
 	typeset DOWNLOAD_LINK="${DOWNLOAD_URL}/${DOWNLOAD_FILE}"
 	typeset SSL_LIB=$1
 
@@ -205,9 +208,9 @@ function install_apache {
 
 	cd "$WORKSPACE_ROOT"
 	wget -O "$DOWNLOAD_FILE" "$DOWNLOAD_LINK" || exit 1
-	tar xjf "${DOWNLOAD_FILE}"
+	tar xjf "${DOWNLOAD_FILE}" || exit 1
 	bundle_apr "${WORKSPACE_ROOT}/${BUILD_DIR}/srclib"
-	cd ${BUILD_DIR}
+	cd "${BUILD_DIR}"
 	./configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
 		--enable-info \
 		--enable-ssl \
@@ -217,6 +220,121 @@ function install_apache {
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 }
+
+#
+# we need as build dependency for apache
+# looks like apache build system not always picks it up
+# from system
+#
+function install_pcre {
+	typeset SSL_LIB=$1
+	typeset VERSION='8.45'
+	typeset SUFFIX='tar.bz2'
+	typeset BASENAME='pcre'
+	typeset DOWNLOAD_FILE="${BASENAME}-${VERSION}.${SUFFIX}"
+	typeset BUILD_DIR="${BASENAME}-${VERSION}"
+	typeset DOWNLOAD_URL="https://sourceforge.net/projects/pcre/files/pcre/${VERSION}"
+	typeset DOWNLOAD_LINK="${DOWNLOAD_URL}/${DOWNLOAD_FILE}"/download
+
+	cd "${WORKSPACE_ROOT}"
+	if [[ -z "${SSL_LIB}" ]] ; then
+		exit 1
+	fi
+
+	wget -O "${DOWNLOAD_FILE}" "${DOWNLOAD_LINK}" || exit 1
+	tar xjf "${DOWNLOAD_FILE}" || exit 1
+	cd "${BUILD_DIR}"
+	./configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
+
+#
+# we need a libtool to be able to run buildconf
+#
+function install_libtool {
+	typeset SSL_LIB=$1
+	typeset VERSION='2.5.4'
+	typeset SUFFIX='tar.gz'
+	typeset BASENAME='libtool'
+	typeset DOWNLOAD_FILE="${BASENAME}-${VERSION}.${SUFFIX}"
+	typeset BUILD_DIR="${BASENAME}-${VERSION}"
+	typeset DOWNLOAD_URL="https://ftpmirror.gnu.org/libtool/"
+	typeset DOWNLOAD_LINK="${DOWNLOAD_URL}/${DOWNLOAD_FILE}"
+
+	if [[ -z "${SSL_LIB}" ]] ; then
+		exit 1
+	fi
+
+	cd "${WORKSPACE_ROOT}"
+	wget -O "${DOWNLOAD_FILE}" "${DOWNLOAD_LINK}" || exit 1
+	tar xzf "${DOWNLOAD_FILE}" || exit 1
+	cd "${BUILD_DIR}"
+	./configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
+
+
+function install_wolf_apache {
+	typeset VERSION='2.4.51'
+	typeset SUFFIX='tar.bz2'
+	typeset BASENAME='httpd'
+	typeset DOWNLOAD_FILE="${BASENAME}-${VERSION}.${SUFFIX}"
+	typeset BUILD_DIR="${BASENAME}-${VERSION}"
+	typeset DOWNLOAD_URL='https://archive.apache.org/dist/httpd'
+	typeset DOWNLOAD_LINK="${DOWNLOAD_URL}/${DOWNLOAD_FILE}"
+	typeset SSL_LIB=$1
+
+	if [[ -z "${SSL_LIB}" ]] ; then
+		echo 'ssl library must be specified'
+		exit 1
+	fi
+
+	install_pcre "${SSL_LIB}"
+	install_libtool "${SSL_LIB}"
+
+	cd "${WORKSPACE_ROOT}"
+	#
+	# downgrade apache version for wolf, because
+	# wolf needs to apply its own set of patches.
+	#
+	DOWNLOAD_FILE="${BASENAME}-${VERSION}.${SUFFIX}"
+	DOWNLOAD_LINK="${DOWNLOAD_URL}/${DOWNLOAD_FILE}"
+	BUILD_DIR="${BASENAME}-${VERSION}"
+	wget -O "$DOWNLOAD_FILE" "$DOWNLOAD_LINK" || exit 1
+	tar xjf "${DOWNLOAD_FILE}" || exit 1
+	#
+	# clone wolf's opens source projects (a.k.a. wolf's ports)
+	# https://github.com/wolfSSL/osp
+	# we need this to obtain patch for apache sources
+	#
+	git clone https://github.com/wolfSSL/osp || exit 1
+	cd "${BUILD_DIR}"
+	patch -p1 < ../osp/apache-httpd/svn_apache-${VERSION}_patch.diff || exit 1
+	cd "${WORKSPACE_ROOT}"
+	bundle_apr "${WORKSPACE_ROOT}/${BUILD_DIR}/srclib"
+	cd "${BUILD_DIR}"
+	#
+	# unlike other ssl implementations wofl requires
+	# mod_ssl to be linked statically with apache daemon
+	#
+	PATH=${PATH}:"${INSTALL_ROOT}/${SSL_LIB}/bin" ./buildconf || exit 1
+	./configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
+		--enable-info \
+		--enable-ssl \
+		--disable-ab \
+		--with-included-apr \
+		--with-pcre="${INSTALL_ROOT}/${SSL_LIB}" \
+		--with-wolfssl="${INSTALL_ROOT}/${SSL_LIB}"\
+		--disable-shared \
+		--enable-mods-static=all  || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+}
+
 
 function install_siege {
 	typeset VERSION='4.1.7'
@@ -251,7 +369,11 @@ function config_apache {
 	typeset HTTPS_CONF_FILE="${INSTALL_ROOT}/${SSL_LIB}/conf/extra/httpd-ssl.conf"
 	typeset SERVERCERT="${INSTALL_ROOT}/${SSL_LIB}/conf/server.crt"
 	typeset SERVERKEY="${INSTALL_ROOT}/${SSL_LIB}/conf/server.key"
-	typeset OPENSSL="${INSTALL_ROOT}/${SSL_LIB}/bin/openssl"
+	#
+	# this is hack as we always assume openssl from master version
+	# is around. We need the tool to create cert and key for server
+	#
+	typeset OPENSSL="${INSTALL_ROOT}/openssl-master/bin/openssl"
 	typeset MOD_SSL="${INSTALL_ROOT}/${SSL_LIB}/modules/mod_ssl.so"
 	typeset SERVER_NAME="${BENCH_SERVER_NAME:-localhost}"
 	SERVER_NAME="${SERVER_NAME}:${HTTPS_PORT}"
@@ -317,39 +439,43 @@ function config_apache {
 	    "${HTTPS_CONF_FILE}" || exit 1
 	#
 	# generate self-signed cert with key
+	# note this is hack because we always assume
+	# openssl-master is installed in INSTALL root
 	#
-	$(LD_LIBRARY_PATH="${INSTALL_ROOT}/${SSL_LIB}/lib" "${OPENSSL}" \
+	$(LD_LIBRARY_PATH="${INSTALL_ROOT}/openssl-master/lib" "${OPENSSL}" \
 	    req -x509 -newkey rsa:4096 -days 180 -noenc -keyout \
 	    "${SERVERKEY}" -out "${SERVERCERT}" -subj "${CERT_SUBJ}" \
 	    -addext "${CERT_ALT_SUBJ}") || exit 1
 }
 
-#install_openssl
-#install_siege
-#install_apache
-#config_apache
-#rm -rf  "${WORKSPACE_ROOT}/httpd-2.4.65*"
-#rm -rf  "${WORKSPACE_ROOT}/siege-4.1.7*"
+install_openssl
+install_siege
+install_apache
+config_apache
+cd "${WORKSPACE_ROOT}"
+# cleanup workspace as checkout to branch may fail,
+# also make clean is not enough.
+rm -rf *
 
-#install_openssl openssl-3.5
-#install_siege openssl-3.5
-#install_apache openssl-3.5
-#config_apache openssl-3.5
-#rm -rf  "${WORKSPACE_ROOT}/siege-4.1.7*"
-#rm -rf  "${WORKSPACE_ROOT}/httpd-2.4.65*"
+for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
+	install_openssl openssl-$i ;
+	install_siege openssl-$i
+	install_apache openssl-$i
+	config_apache openssl-$i
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
+done
 
-#install_openssl openssl-3.4
-#install_siege openssl-3.4
-#install_apache openssl-3.4
-#config_apache openssl-3.4
-
-#install_wolfssl 5.8.2
-#install_siege wolfssl-5.8.2
-#install_apache wolfssl-5.8.2
+install_wolfssl 5.8.2
+install_siege wolfssl-5.8.2
+install_wolf_apache wolfssl-5.8.2
+config_apache wolfssl-5.8.2
+cd "${WORKSPACE_ROOT}"
+rm -rf *
 
 install_libressl 4.1.0
 install_siege libressl-4.1.0
 install_apache libressl-4.1.0
-
-rm -rf  "${WORKSPACE_ROOT}/siege-4.1.7*"
-rm -rf  "${WORKSPACE_ROOT}/httpd-2.4.65*"
+config_apache libressl-4.1.0
+cd "${WORKSPACE_ROOT}"
+rm -rf *
