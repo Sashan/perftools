@@ -476,7 +476,37 @@ done
 #
 # wolf-ssl does not work. It installs it starts,
 # client can establish connection but handshake
-# seems to get stuck. Issue is being investigated
+# seems to get stuck. I can see client sends its
+# hello with TLS-1.2/TLS-1.3 and there is no
+# reply from server, for more than 10secs.
+#
+# this is the configuration I'm using:
+# ServerName localhost
+# Listen 4430
+#
+# SSLCipherSuite HIGH:MEDIUM:!MD5:!RC4:!3DES
+# SSLHonorCipherOrder on 
+# SSLProtocol all -SSLv3
+# <VirtualHost *:443>
+# ServerName localhost
+# DocumentRoot "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/htdocs"
+# ErrorLog "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/error_log"
+# TransferLog "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/access_log"
+# SSLEngine on
+# SSLCertificateFile "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/conf/server.crt"
+# SSLCertificateKeyFile "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/conf/server.key"
+# </VirtualHost>
+#
+# Unlike the suggested configuration here:
+#	https://github.com/wolfSSL/osp/blob/master/apache-httpd/README.md#running-simple-https
+# I had to add SSLCipherSuite SSLHonorCipherOrder SSLProtocol. The configuration from
+# link above does not work either. The httpd process refuses to start, leaving message:
+# 
+# [Fri Aug 29 17:10:39.065428 2025] [ssl:emerg] [pid 3263901:tid 133639498441152] AH01898: Unable to configure permitted SSL ciphers
+# [Fri Aug 29 17:10:39.065460 2025] [ssl:emerg] [pid 3263901:tid 133639498441152] AH02311: Fatal error initialising mod_ssl, exiting. See /home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/error_log for more information
+# AH00016: Configuration Failed
+#
+# any hints/advise on how to get apache with wolfssl going is welcomed
 #
 install_wolfssl 5.8.2
 install_siege wolfssl-5.8.2
