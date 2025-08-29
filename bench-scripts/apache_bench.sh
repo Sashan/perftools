@@ -473,6 +473,11 @@ for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
 	rm -rf *
 done
 
+#
+# wolf-ssl does not work. It installs it starts,
+# client can establish connection but handshake
+# seems to get stuck. Issue is being investigated
+#
 install_wolfssl 5.8.2
 install_siege wolfssl-5.8.2
 install_wolf_apache wolfssl-5.8.2
