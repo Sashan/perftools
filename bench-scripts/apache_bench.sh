@@ -8,6 +8,12 @@
 # https://www.openssl.org/source/license.html
 #
 
+#
+#
+# make sure to disable firewall
+#	ufw disable
+# it feels like ipv6 loopback traffic is disabled on ubunut
+#
 INSTALL_ROOT=${BENCH_INSTALL_ROOT:-"$HOME/work.openssl/bench.binaries"}
 WORKSPACE_ROOT=${BENCH_WORKSPACE_ROOT:-"$HOME/work.openssl/bench.workspace"}
 MAKE_OPTS=${BENCH_MAKE_OPTS}
@@ -330,6 +336,7 @@ function install_wolf_apache {
 		--with-pcre="${INSTALL_ROOT}/${SSL_LIB}" \
 		--with-wolfssl="${INSTALL_ROOT}/${SSL_LIB}"\
 		--disable-shared \
+		--with-libxml2 \
 		--enable-mods-static=all  || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
