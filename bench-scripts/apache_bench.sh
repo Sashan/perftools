@@ -49,6 +49,11 @@ function check_env {
 		exit 1
 	fi
 
+	if [[ ! -x "$(which seq)" ]] ; then
+		echo 'No seq in PATH'
+		exit 1
+	fi
+
 	TEST_FILE=".test_file.$$"
 	mkdir -p "${WORKSPACE_ROOT}"
 	if [[ $? -ne 0 ]] ; then
@@ -367,10 +372,37 @@ function install_siege {
 	make ${MAKE_OPTS} install || exit 1
 }
 
+function generate_download_files {
+	typeset SSL_LIB=$1
+	typeset i=0
+
+	if [[ -z "${SSL_LIB}" ]] ; then
+		SSL_LIB='openssl-master'
+	fi
+
+	#
+	# we start with 64 bytes long file
+	#
+	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/htdocs
+	for i in `seq 16` ; do
+		echo -n 'test' >> "${HTDOCS}"/test.txt
+	done
+
+	#
+	# here we double the size of last file with each
+	# iteration. starting at 64, then 128, 254, 512,...
+	#
+	typeset LAST="${HTDOCS}"/test.txt
+	for i in `seq 16` ; do
+		cat "${LAST}" "${LAST}" > "${HTDOCS}/test_${i}.txt"
+		LAST="${HTDOCS}/test_${i}.txt"
+	done
+}
+
 function config_apache {
 	typeset SSL_LIB=$1
 	if [[ -z "${SSL_LIB}" ]] ; then
-		typeset SSL_LIB='openssl-master'
+		SSL_LIB='openssl-master'
 	fi
 	typeset CONF_FILE="${INSTALL_ROOT}/${SSL_LIB}/conf/httpd.conf"
 	typeset HTTPS_CONF_FILE="${INSTALL_ROOT}/${SSL_LIB}/conf/extra/httpd-ssl.conf"
@@ -453,6 +485,46 @@ function config_apache {
 	    req -x509 -newkey rsa:4096 -days 180 -noenc -keyout \
 	    "${SERVERKEY}" -out "${SERVERCERT}" -subj "${CERT_SUBJ}" \
 	    -addext "${CERT_ALT_SUBJ}") || exit 1
+
+	generate_download_files "${SSL_LIB}"
+}
+
+function run_test {
+	typeset SSL_LIB=$1
+	typeset i=0
+	if [[ -z "${SSL_LIB}" ]] ; then
+		SSL_LIB='openssl-master'
+	fi
+	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
+	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/htdocs
+
+	#
+	# we always try to use siege from openssl master by default,
+	# if not found then we try the one which is installed for
+	# openssl version we'd like to test.
+	#
+	if [[ ! -x "{SIEGE}" ]] ; then
+		SIEGE="${INSTALL_ROOT}/${SSL_LIB}"/bin/siege
+	fi
+
+	if [[ ! -x "${SIEGE}" ]] ; then
+		echo "no siege found in ${SIEGE}"
+		exit 1
+	fi
+
+	rm -f siege_urls.txt
+	for i in `ls -1 ${HTDOCS}/*.txt` ; do
+		echo "https://localhost:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
+	done
+
+	"${INSTALL_ROOT}/${SSL_LIB}/bin/httpd"
+	if [[ $? -ne 0 ]] ; then
+		echo "could not start ${INSTALL_ROOT}/${SSL_LIB}/bin/httpd"
+		exit 1
+	fi
+	"${SIEGE}" -t 5M -b -f siege_urls.txt 2> "${INSTALL_ROOT}/${SSL_LIB}.txt"
+	rm siege_urls.txt
+	$("${INSTALL_ROOT}/${SSL_LIB}/bin/apachectl" stop) || exit 1
 }
 
 install_openssl
