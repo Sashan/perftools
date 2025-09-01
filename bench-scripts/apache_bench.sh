@@ -206,7 +206,7 @@ function install_boringssl {
 	cd "${WORKSPACE_ROOT}"
 }
 
-function install_aws-lc {
+function install_aws_lc {
 	typeset AWS_REPO='https://github.com/aws/aws-lc.git'
 	typeset AWS_NAME="aws-lc"
 	cd "${WORKSPACE_ROOT}"
@@ -650,7 +650,7 @@ function setup_tests {
 	cd "${WORKSPACE_ROOT}"
 	rm -rf *
 
-	install_aws-lc
+	install_aws_lc
 	install_siege aws-lc
 	install_apache aws-lc
 	config_apache aws-lc
