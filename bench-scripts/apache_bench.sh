@@ -29,6 +29,11 @@ function check_env {
 		exit 1
 	fi
 
+	if [[ ! -x `$(which cmake)` ]] ; then
+		echo 'No cmake in PATH'
+		exit 1
+	fi
+
 	if [[ ! -x "$(which wget)" ]] ; then
 		echo 'No wget in PATH'
 		exit 1
@@ -172,6 +177,49 @@ function install_libressl {
 	make ${MAKE_OPTS} install || exit 1
 }
 
+function install_boringssl {
+	typeset BORING_REPO='https://boringssl.googlesource.com/boringssl'
+	cd "${WORKSPACE_ROOT}"
+	mkdir -p boringssl
+	cd boringssl
+	git clone "${BORING_REPO}" .
+	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/boringssl" \
+	    -DCMAKE_BUILD_TYPE=Release || exit 1
+	cd build || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
+
+function install_boringssl {
+	typeset BORING_REPO='https://boringssl.googlesource.com/boringssl'
+	typeset BORING_NAME='boringssl'
+	cd "${WORKSPACE_ROOT}"
+	mkdir -p "${BORING_NAME}"
+	cd "${BORING_NAME}"
+	git clone "${BORING_REPO}" . || exit 1
+	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${BORING_NAME}" \
+	    -DCMAKE_BUILD_TYPE=Release || exit 1
+	cd build || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
+
+function install_aws-lc {
+	typeset AWS_REPO='https://github.com/aws/aws-lc.git'
+	typeset AWS_NAME="aws-lc"
+	cd "${WORKSPACE_ROOT}"
+	mkdir -p "${AWS_NAME}"
+	cd "${AWS_NAME}"
+	git clone "${BORING_REPO}" . || exit 1
+	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/boringssl" \
+	    -DCMAKE_BUILD_TYPE=Release || exit 1
+	cd build || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
 #
 # download apr and apr-util and unpack them to apachr-src/srclib directory. The
 # unpacked directories must be renamed to basenames (name without version
@@ -527,69 +575,105 @@ function run_test {
 	$("${INSTALL_ROOT}/${SSL_LIB}/bin/apachectl" stop) || exit 1
 }
 
-install_openssl
-install_siege
-install_apache
-config_apache
-cd "${WORKSPACE_ROOT}"
-# cleanup workspace as checkout to branch may fail,
-# also make clean is not enough.
-rm -rf *
+function setup_tests {
+	install_openssl
+	install_siege
+	install_apache
+	config_apache
+	cd "${WORKSPACE_ROOT}"
+	# cleanup workspace as checkout to branch may fail,
+	# also make clean is not enough.
+	rm -rf *
 
-for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
-	install_openssl openssl-$i ;
-	install_siege openssl-$i
-	install_apache openssl-$i
-	config_apache openssl-$i
+	for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
+		install_openssl openssl-$i ;
+		install_siege openssl-$i
+		install_apache openssl-$i
+		config_apache openssl-$i
+		cd "${WORKSPACE_ROOT}"
+		rm -rf *
+	done
+
+	#
+	# wolf-ssl does not work. It installs it starts,
+	# client can establish connection but handshake
+	# seems to get stuck. I can see client sends its
+	# hello with TLS-1.2/TLS-1.3 and there is no
+	# reply from server, for more than 10secs.
+	#
+	# this is the configuration I'm using:
+	# ServerName localhost
+	# Listen 4430
+	#
+	# SSLCipherSuite HIGH:MEDIUM:!MD5:!RC4:!3DES
+	# SSLHonorCipherOrder on
+	# SSLProtocol all -SSLv3
+	# <VirtualHost *:443>
+	# ServerName localhost
+	# DocumentRoot "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/htdocs"
+	# ErrorLog "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/error_log"
+	# TransferLog "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/access_log"
+	# SSLEngine on
+	# SSLCertificateFile "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/conf/server.crt"
+	# SSLCertificateKeyFile "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/conf/server.key"
+	# </VirtualHost>
+	#
+	# Unlike the suggested configuration here:
+	#	https://github.com/wolfSSL/osp/blob/master/apache-httpd/README.md#running-simple-https
+	# I had to add SSLCipherSuite SSLHonorCipherOrder SSLProtocol. The configuration from
+	# link above does not work either. The httpd process refuses to start, leaving message:
+	# 
+	# [Fri Aug 29 17:10:39.065428 2025] [ssl:emerg] [pid 3263901:tid 133639498441152] AH01898: Unable to configure permitted SSL ciphers
+	# [Fri Aug 29 17:10:39.065460 2025] [ssl:emerg] [pid 3263901:tid 133639498441152] AH02311: Fatal error initialising mod_ssl, exiting. See /home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/error_log for more information
+	# AH00016: Configuration Failed
+	#
+	# any hints/advise on how to get apache with wolfssl going is welcomed
+	#
+	install_wolfssl 5.8.2
+	install_siege wolfssl-5.8.2
+	install_wolf_apache wolfssl-5.8.2
+	config_apache wolfssl-5.8.2
 	cd "${WORKSPACE_ROOT}"
 	rm -rf *
-done
 
-#
-# wolf-ssl does not work. It installs it starts,
-# client can establish connection but handshake
-# seems to get stuck. I can see client sends its
-# hello with TLS-1.2/TLS-1.3 and there is no
-# reply from server, for more than 10secs.
-#
-# this is the configuration I'm using:
-# ServerName localhost
-# Listen 4430
-#
-# SSLCipherSuite HIGH:MEDIUM:!MD5:!RC4:!3DES
-# SSLHonorCipherOrder on 
-# SSLProtocol all -SSLv3
-# <VirtualHost *:443>
-# ServerName localhost
-# DocumentRoot "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/htdocs"
-# ErrorLog "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/error_log"
-# TransferLog "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/access_log"
-# SSLEngine on
-# SSLCertificateFile "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/conf/server.crt"
-# SSLCertificateKeyFile "/home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/conf/server.key"
-# </VirtualHost>
-#
-# Unlike the suggested configuration here:
-#	https://github.com/wolfSSL/osp/blob/master/apache-httpd/README.md#running-simple-https
-# I had to add SSLCipherSuite SSLHonorCipherOrder SSLProtocol. The configuration from
-# link above does not work either. The httpd process refuses to start, leaving message:
-# 
-# [Fri Aug 29 17:10:39.065428 2025] [ssl:emerg] [pid 3263901:tid 133639498441152] AH01898: Unable to configure permitted SSL ciphers
-# [Fri Aug 29 17:10:39.065460 2025] [ssl:emerg] [pid 3263901:tid 133639498441152] AH02311: Fatal error initialising mod_ssl, exiting. See /home/sashan/work.openssl/bench.binaries/wolfssl-5.8.2/logs/error_log for more information
-# AH00016: Configuration Failed
-#
-# any hints/advise on how to get apache with wolfssl going is welcomed
-#
-install_wolfssl 5.8.2
-install_siege wolfssl-5.8.2
-install_wolf_apache wolfssl-5.8.2
-config_apache wolfssl-5.8.2
-cd "${WORKSPACE_ROOT}"
-rm -rf *
+	install_libressl 4.1.0
+	install_siege libressl-4.1.0
+	install_apache libressl-4.1.0
+	config_apache libressl-4.1.0
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
 
-install_libressl 4.1.0
-install_siege libressl-4.1.0
-install_apache libressl-4.1.0
-config_apache libressl-4.1.0
-cd "${WORKSPACE_ROOT}"
-rm -rf *
+	install_boringssl
+	install_siege boringssl
+	install_apache boringssl
+	config_apache boringssl
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
+
+	install_aws-lc
+	install_siege aws-lc
+	install_apache aws-lc
+	config_apache aws-lc
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
+}
+
+function run_tests {
+	for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
+		run_test openssl-${i}
+	done
+	run_test openssl-master
+	run_test libressl-4.1.0
+	#
+	# could not get apache with wolfssl working
+	#
+	#run_test wolfssl-5.8.2
+	run_test boringssl
+	run_test aws-lc
+}
+
+setup_tests
+run_tests
+
+echo 'testing using siege is complete, results can be foun dhere:'
+ls -1 "${INSTALL_ROOT}/*.txt"
