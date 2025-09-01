@@ -92,22 +92,22 @@ function cleanup {
 }
 
 function install_openssl {
-	typeset VERSION=$1
-	typeset BASENAME='openssl'
 	typeset OPENSSL_REPO='https://github.com/openssl/openssl'
-	typeset BRANCH_NAME=''
-	if [[ -n "${VERSION}" ]] ; then
-		VERSION='master'
-		BRANCH_NAME='master'
+	typeset BRANCH_NAME=$1
+	typeset DIRNAME=''
+
+	if [[ "${BRANCH_NAME}" = 'master' ]] ; then
+		DIRNAME='openssl-master'
 	else
-		BRANCH_NAME="openssl-${VERSION}"
+		DIRNAME="${BRANCH_NAME}"
 	fi
-	typeset DIRNAME="${BASENAME}-${VERSION}"
+
 	cd ${WORKSPACE_ROOT}
 	mkdir -p ${DIRNAME}
 	cd ${DIRNAME}
+
 	git clone --single-branch -b ${BRANCH_NAME} --depth 1 \
-		https://github.com/openssl/openssl || exit 1
+		https://github.com/openssl/openssl . || exit 1
 
 	./Configure --prefix="${INSTALL_ROOT}/${DIRNAME}" \
 		--libdir="${INSTALL_ROOT}/${DIRNAME}/lib" || exit 1
@@ -314,7 +314,7 @@ function run_test {
 }
 
 function setup_tests {
-	install_openssl
+	install_openssl master
 	install_nginx
 	install_siege
 
