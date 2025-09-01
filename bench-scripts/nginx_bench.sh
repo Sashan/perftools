@@ -149,8 +149,7 @@ function install_wolfssl {
 	AUTOCONF_VERSION=2.72 AUTOMAKE_VERSION=1.16 ./autogen.sh || exit 1
 
 	./configure --prefix="${INSTALL_ROOT}/wolfssl-${VERSION}" \
-	    --enable-apachehttpd \
-	    --enable-postauth || exit 1
+	    --enable-nginx || exit 1
 
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
@@ -251,6 +250,44 @@ function install_nginx {
 	cd "${WORKSPACE_ROOT}"
 }
 
+function install_wolf_nginx {
+	typeset SSL_LIB=$1
+	typeset NGIX_REPO='https://github.com/nginx/nginx'
+	typeset VERSION='1.25'
+	typeset BASENAME='nginx'
+	if [[ -z "${VERSION}" ]] ; then
+		VERSION='master'
+	fi
+	typeset DIRNAME="${BASENAME}-${VERSION}"
+
+	if [[ -z "${SSL_LIB}" ]] ; then
+		SSL_LIB='openssl-master'
+	fi
+
+	cd "${WORKSPACE_ROOT}"
+	mkdir -p "${DIRNAME}"
+	cd "${DIRNAME}"
+	git clone "${NGIX_REPO}" . || exit 1
+	if [[ -n "${VERSION}" ]] ; then
+		git checkout -b stable-${VERSION} origin/stable-${VERSION} || exit 1
+	fi
+
+	cd "${WORKSPACE_ROOT}"
+	git clone https://github.com/wolfssl/wolfssl-nginx || exit 1
+	cd "${DIRNAME}"
+	patch -p1 < ../wolfssl-ngix/nginx-${VERSION}.0-wolfssl.patch || exit 1
+
+	#
+	# note ngix unlike apache requires pointer to ssl sources
+	#
+	./auto/configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
+		--with-http_ssl_module \
+		--with-wolfssl="${WORKSPACE_ROOT}/${SSL_LIB}" || exit 1
+	make ${MAKE_OPTS} || exit 1
+	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
+
 function install_siege {
 	typeset VERSION='4.1.7'
 	typeset SUFFIX='tar.gz'
@@ -314,47 +351,45 @@ function run_test {
 }
 
 function setup_tests {
-	install_openssl master
-	install_nginx
-	install_siege
-
-	exit 1
-	cd "${WORKSPACE_ROOT}"
-	# cleanup workspace as checkout to branch may fail,
-	# also make clean is not enough.
-	rm -rf *
-
-	for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
-		install_openssl openssl-$i
-		install_nginx
-		install_siege openssl-$i
-		cd "${WORKSPACE_ROOT}"
-		rm -rf *
-	done
+#	install_openssl master
+#	install_nginx
+#	install_siege
+#
+#	cd "${WORKSPACE_ROOT}"
+#	# cleanup workspace as checkout to branch may fail,
+#	# also make clean is not enough.
+#	rm -rf *
+#
+#	for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
+#		install_openssl openssl-$i
+#		install_nginx
+#		install_siege openssl-$i
+#		cd "${WORKSPACE_ROOT}"
+#		rm -rf *
+#	done
 
 	install_wolfssl 5.8.2
-	install_siege wolfssl-5.8.2
 	install_nginx wolfssl-5.8.2
-	cd "${WORKSPACE_ROOT}"
-	rm -rf *
+#	cd "${WORKSPACE_ROOT}"
+#	rm -rf *
 
-	install_libressl 4.1.0
-	install_siege libressl-4.1.0
-	install_nginx libressl-4.1.0
-	cd "${WORKSPACE_ROOT}"
-	rm -rf *
-
-	install_boringssl
-	install_siege boringssl
-	install_nginx boringssl
-	cd "${WORKSPACE_ROOT}"
-	rm -rf *
-
-	install_aws_lc
-	install_nginx aws-lc
-	install_siege aws-lc
-	cd "${WORKSPACE_ROOT}"
-	rm -rf *
+#	install_libressl 4.1.0
+#	install_siege libressl-4.1.0
+#	install_nginx libressl-4.1.0
+#	cd "${WORKSPACE_ROOT}"
+#	rm -rf *
+#
+#	install_boringssl
+#	install_siege boringssl
+#	install_nginx boringssl
+#	cd "${WORKSPACE_ROOT}"
+#	rm -rf *
+#
+#	install_aws_lc
+#	install_nginx aws-lc
+#	install_siege aws-lc
+#	cd "${WORKSPACE_ROOT}"
+#	rm -rf *
 }
 
 function run_tests {
