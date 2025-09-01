@@ -212,7 +212,7 @@ function install_aws_lc {
 	cd "${WORKSPACE_ROOT}"
 	mkdir -p "${AWS_NAME}"
 	cd "${AWS_NAME}"
-	git clone "${BORING_REPO}" . || exit 1
+	git clone "${AWS_REPO}" . || exit 1
 	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/boringssl" \
 	    -DCMAKE_BUILD_TYPE=Release || exit 1
 	cd build || exit 1
