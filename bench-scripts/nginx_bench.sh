@@ -29,6 +29,11 @@ function check_env {
 		exit 1
 	fi
 
+	if [[ ! -x "$(which ninja)" ]] ; then
+		echo "No ninja in PATH"
+		exit 1
+	fi
+
 	if [[ ! -x `$(which cmake)` ]] ; then
 		echo 'No cmake in PATH'
 		exit 1
@@ -119,9 +124,14 @@ function install_openssl {
 function install_wolfssl {
 	typeset VERSION=$1
 	typeset WOLFSSL_TAG="v${VERSION}-stable"
-	typeset WOLFSSL_WORKSPCE="${WORKSPACE_ROOT}/wolfssl"
+	typeset DIRNAME="wolfssl-${VERSION}"
+	typeset WOLFSSL_WORKSPCE="${WORKSPACE_ROOT}/${DIRNAME}"
 	typeset WOLFSSL_REPO='https://github.com/wolfSSL/wolfssl'
 
+	if [[ -z ${VERSION} ]] ; then
+		DIRNAME='wolfssl'
+		WOLFSSL_WORKSPCE="${WORKSPACE_ROOT}/${DIRNAME}"
+	fi
 	mkdir -p ${WOLFSSL_WORKSPCE}
 	cd ${WOLFSSL_WORKSPCE}
 	git clone "${WOLFSSL_REPO}" .
@@ -142,13 +152,9 @@ function install_wolfssl {
 		fi
 	fi
 
-	if [[ -z ${VERSION} ]] ; then
-		VERSION='wolfssl-master'
-	fi
-
 	AUTOCONF_VERSION=2.72 AUTOMAKE_VERSION=1.16 ./autogen.sh || exit 1
 
-	./configure --prefix="${INSTALL_ROOT}/wolfssl-${VERSION}" \
+	./configure --prefix="${INSTALL_ROOT}/${DIRNAME}" \
 	    --enable-nginx || exit 1
 
 	make ${MAKE_OPTS} || exit 1
@@ -175,11 +181,12 @@ function install_libressl {
 
 function install_boringssl {
 	typeset BORING_REPO='https://boringssl.googlesource.com/boringssl'
+	typeset SSLIB_NAME='boringssl'
 	cd "${WORKSPACE_ROOT}"
-	mkdir -p boringssl
-	cd boringssl
-	git clone "${BORING_REPO}" .
-	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/boringssl" \
+	mkdir -p "${SSLIB_NAME}"
+	cd "${SSLIB_NAME}"
+	git clone "${BORING_REPO}" . || exit 1
+	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${SSLIB_NAME}" \
 	    -DCMAKE_BUILD_TYPE=Release || exit 1
 	cd build || exit 1
 	make ${MAKE_OPTS} || exit 1
@@ -187,18 +194,28 @@ function install_boringssl {
 	cd "${WORKSPACE_ROOT}"
 }
 
-function install_boringssl {
-	typeset BORING_REPO='https://boringssl.googlesource.com/boringssl'
-	typeset BORING_NAME='boringssl'
+#
+# based on notes I've found here:
+#	https://lvv.me/posts/2019/01/24-build_nginx_with_boringssl/
+#
+function setup_sslib_for_nginx {
+	typeset SSLIB_NAME='boringssl'
+
 	cd "${WORKSPACE_ROOT}"
-	mkdir -p "${BORING_NAME}"
-	cd "${BORING_NAME}"
-	git clone "${BORING_REPO}" . || exit 1
-	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${BORING_NAME}" \
-	    -DCMAKE_BUILD_TYPE=Release || exit 1
-	cd build || exit 1
-	make ${MAKE_OPTS} || exit 1
-	make ${MAKE_OPTS} install || exit 1
+	rm -rf "${SSLIB_NAME}"
+	mkdir "${SSLIB_NAME}"
+	cd "${SSLIB_NAME}"
+	git clone https://boringssl.googlesource.com/boringssl .
+	mkdir build || exit 1
+	cd build
+	cmake -GNinja .. || exit 1
+	ninja || exit 1
+	cd ..
+	mkdir -p .openssl/lib
+	cp build/libcrypto.a .openssl/lib/. || exit 1
+	cp build/libssl.a .openssl/lib/. || exit 1
+	cd .openssl || exit 1
+	ln -s ../include .
 	cd "${WORKSPACE_ROOT}"
 }
 
@@ -244,7 +261,15 @@ function install_nginx {
 	#
 	./auto/configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
 		--with-http_ssl_module \
-		--with-openssl="${WORKSPACE_ROOT}/${SSL_LIB}" || exit 1
+		--with-ldopt" -Wl,-z,relro -Wl,-z,now -Wl,--as-needed -pie" \
+		--with-openssl="../${SSL_LIB}" || exit 1
+
+	#
+	# this is required by boring/aws-lc. it does not hurt wolf/openssl/libre
+	# comes from here:
+	#    https://lvv.me/posts/2019/01/24-build_nginx_with_boringssl/
+	#
+	touch "${WORKSPACE_ROOT}/${SSL_LIB}/.openssl/include/ssl.h" || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 	cd "${WORKSPACE_ROOT}"
@@ -253,7 +278,7 @@ function install_nginx {
 function install_wolf_nginx {
 	typeset SSL_LIB=$1
 	typeset NGIX_REPO='https://github.com/nginx/nginx'
-	typeset VERSION='1.25'
+	typeset VERSION='1.24'
 	typeset BASENAME='nginx'
 	if [[ -z "${VERSION}" ]] ; then
 		VERSION='master'
@@ -275,14 +300,14 @@ function install_wolf_nginx {
 	cd "${WORKSPACE_ROOT}"
 	git clone https://github.com/wolfssl/wolfssl-nginx || exit 1
 	cd "${DIRNAME}"
-	patch -p1 < ../wolfssl-ngix/nginx-${VERSION}.0-wolfssl.patch || exit 1
+	patch -p1 < ../wolfssl-nginx/nginx-${VERSION}.0-wolfssl.patch || exit 1
 
 	#
-	# note ngix unlike apache requires pointer to ssl sources
+	# note nginx unlike apache requires pointer to ssl sources
 	#
 	./auto/configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
 		--with-http_ssl_module \
-		--with-wolfssl="${WORKSPACE_ROOT}/${SSL_LIB}" || exit 1
+		--with-wolfssl="${INSTALL_ROOT}/${SSL_LIB}" || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 	cd "${WORKSPACE_ROOT}"
@@ -368,20 +393,19 @@ function setup_tests {
 #		rm -rf *
 #	done
 
-	install_wolfssl 5.8.2
-	install_nginx wolfssl-5.8.2
+#	install_wolfssl 5.8.2
+#	install_wolf_nginx wolfssl-5.8.2
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 
 #	install_libressl 4.1.0
-#	install_siege libressl-4.1.0
 #	install_nginx libressl-4.1.0
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 #
-#	install_boringssl
-#	install_siege boringssl
-#	install_nginx boringssl
+	install_boringssl
+	setup_sslib_for_nginx boringssl
+	install_nginx boringssl
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 #
