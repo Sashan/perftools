@@ -118,7 +118,7 @@ function install_openssl {
 		--libdir="${INSTALL_ROOT}/${DIRNAME}/lib" || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
-	make clean || exit 1
+	cd ${WORKSPACE_ROOT}
 }
 
 function install_wolfssl {
