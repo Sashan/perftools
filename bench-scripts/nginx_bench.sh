@@ -227,8 +227,6 @@ function setup_sslib_for_nginx {
 	# bits from build directory we created library install step.
 	#
 	mkdir -p .openssl/lib
-	cp build/libcrypto.so .openssl/lib/. || exit 1
-	cp build/libssl.so .openssl/lib/. || exit 1
 	#
 	# this is a hack nginx wants to link with static libary,
 	# however we will be using dynamic library .so
@@ -238,6 +236,120 @@ function setup_sslib_for_nginx {
 	cd .openssl || exit 1
 	ln -s ../include .
 	cd "${WORKSPACE_ROOT}"
+}
+
+function generate_download_files {
+	typeset SSL_LIB=$1
+	typeset i=0
+
+	if [[ -z "${SSL_LIB}" ]] ; then
+		SSL_LIB='openssl-master'
+	fi
+
+	#
+	# we start with 64 bytes long file
+	#
+	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/html
+	for i in `seq 16` ; do
+		echo -n 'test' >> "${HTDOCS}"/test.txt
+	done
+
+	#
+	# here we double the size of last file with each
+	# iteration. starting at 64, then 128, 254, 512,...
+	#
+	typeset LAST="${HTDOCS}"/test.txt
+	for i in `seq 16` ; do
+		cat "${LAST}" "${LAST}" > "${HTDOCS}/test_${i}.txt"
+		LAST="${HTDOCS}/test_${i}.txt"
+	done
+}
+
+function config_nginx {
+	#
+	# this is hack as we always assume openssl from master version
+	# is around. We need the tool to create cert and key for server
+	#
+	typeset SSL_LIB=$1
+	if [[ -z $SSL_LIB ]] ; then
+		SSL_LIB='openssl-master'
+	fi
+	typeset OPENSSL="${INSTALL_ROOT}"/openssl-master/bin/openssl
+	typeset CONF="${INSTALL_ROOT}/${SSL_LIB}"/conf/nginx.conf
+	typeset SERVERCERT="${INSTALL_ROOT}/${SSL_LIB}/conf/server.crt"
+	typeset SERVERKEY="${INSTALL_ROOT}/${SSL_LIB}/conf/server.key"
+	typeset SERVER_NAME="${BENCH_SERVER_NAME:-localhost}"
+
+cat <<EOF > "${CONF}"
+worker_processes  1;
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    #access_log  logs/access.log  main;
+    sendfile        on;
+    #tcp_nopush     on;
+    #keepalive_timeout  0;
+    keepalive_timeout  65;
+
+    #gzip  on;
+
+    server {
+        listen       ${HTTP_PORT};
+        server_name  ${SERVER_NAME};
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        #error_page  404              /404.html;
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+
+    }
+
+    # HTTPS server
+    #
+    server {
+        listen       ${HTTPS_PORT} ssl;
+        server_name  ${SERVER_NAME};
+
+        ssl_certificate      ${SERVERCERT};
+        ssl_certificate_key  ${SERVERKEY};
+
+        ssl_ciphers  HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers  on;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+    }
+}
+
+
+EOF
+
+	#
+	# generate self-signed cert with key
+	# note this is hack because we always assume
+	# openssl-master is installed in INSTALL root
+	#
+	$(LD_LIBRARY_PATH="${INSTALL_ROOT}/openssl-master/lib" "${OPENSSL}" \
+	    req -x509 -newkey rsa:4096 -days 180 -noenc -keyout \
+	    "${SERVERKEY}" -out "${SERVERCERT}" -subj "${CERT_SUBJ}" \
+	    -addext "${CERT_ALT_SUBJ}") || exit 1
+
+	generate_download_files "${SSL_LIB}"
 }
 
 function install_nginx {
@@ -271,7 +383,7 @@ function install_nginx {
 		--with-threads \
 		--with-cc-opt="-fPIC" \
 		--with-ld-opt="-L ${INSTALL_ROOT}/${SSL_LIB}/lib -lcrypto -L ${INSTALL_ROOT}/${SSL_LIB}/lib -lssl" \
-		--with-openssl="../${SSL_LIB}" || exit 1
+		--with-openssl="${WORKSPACE_ROOT}/${SSL_LIB}" || exit 1
 
 	#
 	# this is required by boring/aws-lc. it does not hurt wolf/openssl/libre
@@ -317,6 +429,7 @@ function install_wolf_nginx {
 	#
 	./auto/configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
 		--with-http_ssl_module \
+		--with-threads \
 		--with-wolfssl="${INSTALL_ROOT}/${SSL_LIB}" || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
@@ -375,53 +488,60 @@ function run_test {
 		echo "https://localhost:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
 	done
 
-	"${INSTALL_ROOT}/${SSL_LIB}/bin/httpd"
+	LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx
 	if [[ $? -ne 0 ]] ; then
-		echo "could not start ${INSTALL_ROOT}/${SSL_LIB}/bin/httpd"
+		echo "could not start ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx"
 		exit 1
 	fi
 	"${SIEGE}" -t 5M -b -f siege_urls.txt 2> "${INSTALL_ROOT}/${SSL_LIB}.txt"
 	rm siege_urls.txt
-	$("${INSTALL_ROOT}/${SSL_LIB}/bin/apachectl" stop) || exit 1
+	pkill nginx
 }
 
 function setup_tests {
-#	install_openssl master
-#	install_nginx
-#	install_siege
-#
-#	cd "${WORKSPACE_ROOT}"
-#	# cleanup workspace as checkout to branch may fail,
-#	# also make clean is not enough.
-#	rm -rf *
-#
-#	for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
-#		install_openssl openssl-$i
-#		install_nginx
-#		install_siege openssl-$i
-#		cd "${WORKSPACE_ROOT}"
-#		rm -rf *
-#	done
+	install_openssl master
+	install_nginx
+	install_siege
+	config_nginx
 
-#	install_wolfssl 5.8.2
-#	install_wolf_nginx wolfssl-5.8.2
-#	cd "${WORKSPACE_ROOT}"
-#	rm -rf *
+	cd "${WORKSPACE_ROOT}"
+	# cleanup workspace as checkout to branch may fail,
+	# also make clean is not enough.
+	rm -rf *
 
-#	install_libressl 4.1.0
-#	install_nginx libressl-4.1.0
-#	cd "${WORKSPACE_ROOT}"
-#	rm -rf *
+	for i in 3.0 3.1 3.2 3.3 3.4 3.5 ; do
+		install_openssl openssl-$i
+		install_nginx openssl-$i
+		config_nginx openssl-$i
+		cd "${WORKSPACE_ROOT}"
+		rm -rf *
+	done
+
+	install_wolfssl 5.8.2
+	install_wolf_nginx wolfssl-5.8.2
+	config_nginx wolfssl-5.8.2
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
+
+	install_libressl 4.1.0
+	install_nginx libressl-4.1.0
+	config_nginx libressl-4.1.0
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
+
+	install_boringssl
+	setup_sslib_for_nginx boringssl
+	install_nginx boringssl
+	config_nginx boringssl
+	cd "${WORKSPACE_ROOT}"
+	rm -rf *
+
+
 #
-#	install_boringssl
-#	setup_sslib_for_nginx boringssl
-#	install_nginx boringssl
-#	cd "${WORKSPACE_ROOT}"
-#	rm -rf *
-#
-	install_aws_lc
-	setup_sslib_for_nginx aws-lc
-	install_nginx aws-lc
+# nginx currently does not support aws-lc
+#	install_aws_lc
+#	setup_sslib_for_nginx aws-lc
+#	install_nginx aws-lc
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 }
@@ -435,13 +555,13 @@ function run_tests {
 	#
 	# could not get apache with wolfssl working
 	#
-	#run_test wolfssl-5.8.2
+	run_test wolfssl-5.8.2
 	run_test boringssl
-	run_test aws-lc
+	#run_test aws-lc
 }
 
 setup_tests
-#run_tests
+run_tests
 #
-#echo 'testing using siege is complete, results can be foun dhere:'
-#ls -1 "${INSTALL_ROOT}/*.txt"
+echo 'testing using siege is complete, results can be foun dhere:'
+ls -1 "${INSTALL_ROOT}/*.txt"
