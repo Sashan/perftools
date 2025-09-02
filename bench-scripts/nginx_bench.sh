@@ -181,41 +181,17 @@ function install_libressl {
 
 function install_boringssl {
 	typeset BORING_REPO='https://boringssl.googlesource.com/boringssl'
-	typeset SSLIB_NAME='boringssl'
+	typeset BORING_NAME='boringssl'
 	cd "${WORKSPACE_ROOT}"
-	mkdir -p "${SSLIB_NAME}"
-	cd "${SSLIB_NAME}"
+	mkdir -p "${BORING_NAME}"
+	cd "${BORING_NAME}"
 	git clone "${BORING_REPO}" . || exit 1
-	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${SSLIB_NAME}" \
+	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${BORING_NAME}" \
 	    -DBUILD_SHARED_LIBS=1 \
 	    -DCMAKE_BUILD_TYPE=Release || exit 1
 	cd build || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
-	cd "${WORKSPACE_ROOT}"
-}
-
-#
-# based on notes I've found here:
-#	https://lvv.me/posts/2019/01/24-build_nginx_with_boringssl/
-#
-function setup_sslib_for_nginx {
-	typeset SSLIB_NAME='boringssl'
-
-	cd "${WORKSPACE_ROOT}"
-	cd "${SSLIB_NAME}"
-#	rm -rf build
-#	mkdir -p build
-#	cmake -GNinja .. || exit 1
-#	ninja || exit 1
-#	cd ..
-	mkdir -p .openssl/lib
-	cp build/libcrypto.so .openssl/lib/. || exit 1
-	cp build/libssl.so .openssl/lib/. || exit 1
-	touch .openssl/lib/libcrypto.a
-	touch .openssl/lib/libssl.a
-	cd .openssl || exit 1
-	ln -s ../include .
 	cd "${WORKSPACE_ROOT}"
 }
 
@@ -226,11 +202,41 @@ function install_aws_lc {
 	mkdir -p "${AWS_NAME}"
 	cd "${AWS_NAME}"
 	git clone "${AWS_REPO}" . || exit 1
-	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/boringssl" \
+	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${AWS_NAME}" \
+	    -DBUILD_SHARED_LIBS=1 \
 	    -DCMAKE_BUILD_TYPE=Release || exit 1
 	cd build || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
+	cd "${WORKSPACE_ROOT}"
+}
+
+function setup_sslib_for_nginx {
+	typeset SSLIB_NAME=$1
+
+	if [[ -z ${SSLIB_NAME} ]] ; then
+		exit 1
+	fi
+
+	cd "${WORKSPACE_ROOT}"
+	cd "${SSLIB_NAME}"
+	#
+	# based on notes I've found here:
+	#	https://lvv.me/posts/2019/01/24-build_nginx_with_boringssl/
+	# but we don't' need to build everything again, we just re-use
+	# bits from build directory we created library install step.
+	#
+	mkdir -p .openssl/lib
+	cp build/libcrypto.so .openssl/lib/. || exit 1
+	cp build/libssl.so .openssl/lib/. || exit 1
+	#
+	# this is a hack nginx wants to link with static libary,
+	# however we will be using dynamic library .so
+	#
+	touch .openssl/lib/libcrypto.a
+	touch .openssl/lib/libssl.a
+	cd .openssl || exit 1
+	ln -s ../include .
 	cd "${WORKSPACE_ROOT}"
 }
 
@@ -258,6 +264,7 @@ function install_nginx {
 
 	#
 	# note ngix unlike apache requires pointer to ssl sources
+	# also we add .so versions as linker parameter.
 	#
 	./auto/configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
 		--with-http_ssl_module \
@@ -271,8 +278,8 @@ function install_nginx {
 	# comes from here:
 	#    https://lvv.me/posts/2019/01/24-build_nginx_with_boringssl/
 	#
-	touch ../${SSL_LIB}/.openssl/include/openssl/ssl.h || exit 1
-	chmod +x ${INSTALL_ROOT}/${SSL_LIB}/lib/*.so || exit 1
+	touch ../${SSL_LIB}/.openssl/include/openssl/ssl.h
+	chmod +x ${INSTALL_ROOT}/${SSL_LIB}/lib/*.so
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 	cd "${WORKSPACE_ROOT}"
@@ -406,15 +413,15 @@ function setup_tests {
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 #
-	install_boringssl
-	setup_sslib_for_nginx boringssl
-	install_nginx boringssl
+#	install_boringssl
+#	setup_sslib_for_nginx boringssl
+#	install_nginx boringssl
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 #
-#	install_aws_lc
-#	install_nginx aws-lc
-#	install_siege aws-lc
+	install_aws_lc
+	setup_sslib_for_nginx aws-lc
+	install_nginx aws-lc
 #	cd "${WORKSPACE_ROOT}"
 #	rm -rf *
 }
