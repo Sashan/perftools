@@ -187,6 +187,7 @@ function install_boringssl {
 	cd "${SSLIB_NAME}"
 	git clone "${BORING_REPO}" . || exit 1
 	cmake -B build -DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${SSLIB_NAME}" \
+	    -DBUILD_SHARED_LIBS=1 \
 	    -DCMAKE_BUILD_TYPE=Release || exit 1
 	cd build || exit 1
 	make ${MAKE_OPTS} || exit 1
@@ -202,18 +203,17 @@ function setup_sslib_for_nginx {
 	typeset SSLIB_NAME='boringssl'
 
 	cd "${WORKSPACE_ROOT}"
-	rm -rf "${SSLIB_NAME}"
-	mkdir "${SSLIB_NAME}"
 	cd "${SSLIB_NAME}"
-	git clone https://boringssl.googlesource.com/boringssl .
-	mkdir build || exit 1
-	cd build
-	cmake -GNinja .. || exit 1
-	ninja || exit 1
-	cd ..
+#	rm -rf build
+#	mkdir -p build
+#	cmake -GNinja .. || exit 1
+#	ninja || exit 1
+#	cd ..
 	mkdir -p .openssl/lib
-	cp build/libcrypto.a .openssl/lib/. || exit 1
-	cp build/libssl.a .openssl/lib/. || exit 1
+	cp build/libcrypto.so .openssl/lib/. || exit 1
+	cp build/libssl.so .openssl/lib/. || exit 1
+	touch .openssl/lib/libcrypto.a
+	touch .openssl/lib/libssl.a
 	cd .openssl || exit 1
 	ln -s ../include .
 	cd "${WORKSPACE_ROOT}"
@@ -261,7 +261,9 @@ function install_nginx {
 	#
 	./auto/configure --prefix="${INSTALL_ROOT}/${SSL_LIB}" \
 		--with-http_ssl_module \
-		--with-ldopt" -Wl,-z,relro -Wl,-z,now -Wl,--as-needed -pie" \
+		--with-threads \
+		--with-cc-opt="-fPIC" \
+		--with-ld-opt="-L ${INSTALL_ROOT}/${SSL_LIB}/lib -lcrypto -L ${INSTALL_ROOT}/${SSL_LIB}/lib -lssl" \
 		--with-openssl="../${SSL_LIB}" || exit 1
 
 	#
@@ -269,7 +271,8 @@ function install_nginx {
 	# comes from here:
 	#    https://lvv.me/posts/2019/01/24-build_nginx_with_boringssl/
 	#
-	touch "${WORKSPACE_ROOT}/${SSL_LIB}/.openssl/include/ssl.h" || exit 1
+	touch ../${SSL_LIB}/.openssl/include/openssl/ssl.h || exit 1
+	chmod +x ${INSTALL_ROOT}/${SSL_LIB}/lib/*.so || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
 	cd "${WORKSPACE_ROOT}"
