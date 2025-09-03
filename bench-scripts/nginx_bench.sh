@@ -24,6 +24,120 @@ CERT_SUBJ=${BENCH_CERT_SUBJ:-'/CN=localhost'}
 CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'}
 TEST_TIME=${BENCH_TEST_TIME:-'5M'}
 
+#
+# the script builds various libssl libraries:
+#	openssl, wolfssl, boringss, libressl
+# each library is installed to its own install root under INSTALL_ROOT
+# directory. The script also builds nginx server version 1.28 and installs
+# it alongside each openssl library.
+#
+# for openssl the build process is straightforward:
+#	clone desired version from github
+#
+#	build it with prefix set to INSTALL_ROOT/openssl-version
+#	and install it
+#
+#	then clone the nginx server version 1.28, build process
+#	for nginx is straightforward. the build options are as follows:
+#		--with-http_ssl_module \
+#		--with-threads \
+#		--with-cc-opt="-fPIC" \
+#		--with-ld-opt="-L ${INSTALL_ROOT}/${SSL_LIB}/lib -lcrypto -L ${INSTALL_ROOT}/${SSL_LIB}/lib -lssl" \
+#		--with-openssl="${WORKSPACE_ROOT}/${SSL_LIB}" || exit 1
+#	with-openssl flag points to openssl sources
+#	we deliberately pass lcrypto/lssl as we want to link them dynamically
+#	without this hack the build process picks static version
+#	found in WORKSPACE_ROOT/SSL_LIB
+#
+# for libressl the build process is similar. however we download
+# ,tar.gz package instead doing git clone
+#
+# for boringssl the build process slightly differs as boringssl uses cmake.
+# the build flags for boringssl are as follows:
+#	-DCMAKE_INSTALL_PREFIX="${INSTALL_ROOT}/${BORING_NAME}" \
+#	-DBUILD_SHARED_LIBS=1 \
+#	-DCMAKE_BUILD_TYPE=Release
+# nginx build process needs to be adjusted too. It happens in seperate
+# function setup_sslib_for_nginx() here in shell. Basically we create
+# .openssl directory under $WORKSPACE_ROOT/boringssl sourcetree and populate
+# it with boringssl headers files and create ,openssl/lib/libcrypto.a
+# and .openssl/lib/libssl.a empty files using touch(1) this hack
+# is sufficient to get nginx build process going. The nginx expects
+# static libraries but we are forcing it to use dynamic versions
+# by tweaking --with-ld-opts flags.
+#
+# there is a separate function install_wolf_nginx() which builds nginx
+# with wolfssl it follows guide found here:
+#	https://github.com/wolfssl/wolfssl-nginx
+#
+# all nginx servers use the same configuration:
+#
+#	worker_processes  1;
+#	events {
+#	    worker_connections  1024;
+#}
+#
+#	http {
+#	    include       mime.types;
+#	    default_type  application/octet-stream;
+#	    #access_log  logs/access.log  main;
+#	    sendfile        on;
+#	    #tcp_nopush     on;
+#	    #keepalive_timeout  0;
+#	    keepalive_timeout  65;
+#
+#	    #gzip  on;
+#
+#	    server {
+#	        listen       ${HTTP_PORT};
+#	        server_name  ${SERVER_NAME};
+#
+#	        location / {
+#	            root   html;
+#	            index  index.html index.htm;
+#	        }
+#
+#	        #error_page  404              /404.html;
+#
+#	        # redirect server error pages to the static page /50x.html
+#	        #
+#	        error_page   500 502 503 504  /50x.html;
+#	        location = /50x.html {
+#	            root   html;
+#	        }
+#
+#	    }
+#
+#	    # HTTPS server
+#	    #
+#	    server {
+#	        listen       ${HTTPS_PORT} ssl;
+#	        server_name  ${SERVER_NAME};
+#
+#	        ssl_certificate      ${SERVERCERT};
+#	        ssl_certificate_key  ${SERVERKEY};
+#
+#	        ssl_ciphers  HIGH:!aNULL:!MD5;
+#	        ssl_prefer_server_ciphers  on;
+#
+#	        location / {
+#	            root   html;
+#	            index  index.html index.htm;
+#	        }
+#	    }
+#	}
+#
+# the serverkey nad servercert are self-signed certificate for
+# localhost/127.0.0.1
+#
+# The performance is tested using siege (https://github.com/JoeDog/siege
+# scripts build it and installs it along openssl-master
+# the client by default fetches set of 17 urls for 5 minutes to
+# gather performance data for each nginx/ssl combination.
+# the sizes of files which are downloaded are {64, 128, 256, ... 4MB)
+#
+
+
 function check_env {
 	if [[ ! -x "$(which gnuplot)" ]] ; then
 		echo 'No gnuplot in PATH'
