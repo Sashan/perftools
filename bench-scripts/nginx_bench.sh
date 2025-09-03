@@ -15,6 +15,7 @@
 # it feels like ipv6 loopback traffic is disabled on ubunut
 #
 INSTALL_ROOT=${BENCH_INSTALL_ROOT:-"$HOME/work.openssl/bench.binaries"}
+RESULT_DIR=${BENCH_RESULTS:-"${INSTALL_ROOT}/results"}
 WORKSPACE_ROOT=${BENCH_WORKSPACE_ROOT:-"$HOME/work.openssl/bench.workspace"}
 MAKE_OPTS=${BENCH_MAKE_OPTS}
 HTTPS_PORT=${BENCH_HTTPS_PORT:-'4430'}
@@ -491,7 +492,7 @@ function run_test {
 	fi
 
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/openssl-master/lib "${SIEGE}" -t ${TEST_TIME}  -b \
-	    -f siege_urls.txt 2> "${INSTALL_ROOT}/${SSL_LIB}.txt"
+	    -f siege_urls.txt 2> "${RESULT_DIR}/${SSL_LIB}.txt"
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx -s quit
 }
 
@@ -557,8 +558,45 @@ function run_tests {
 	#run_test aws-lc
 }
 
+function plot_chart {
+	typeset BASENAME=$1
+	typeset TITLE=$2
+	typeset MATCH=$3
+	typeset COUNT=1
+	typeset RESULT_FILE
+	typeset DATA_FILE=${RESULT_DIR}/${BASENAME}.data
+	typeset PLOT_FILE=${RESULT_DIR}/${BASENAME}.plot
+	typeset PNG_FILE=${RESULT_DIR}/${BASENAME}.png
+
+	echo "#Library	${TITLE}" > ${DATA_FILE}
+	for LIBRARY in openssl-3.0 openssl-3.1 openssl-3.2 openssl-3.3 openssl-3.4 openssl-3.5 wolfssl-5.8.2 libressl-4.1.0 boringssl ; do
+		RESULT_FILE="${RESULT_DIR}/${LIBRARY}.txt"
+		VALUE=`grep "^${MATCH}" ${RESULT_FILE} | cut -f 2 -d : | awk '{ print($1); }'`
+		echo "${COUNT}	${LIBRARY}\t${VALUE}" >> ${DATA_FILE}
+		COUNT=$((COUNT + 1))
+	done
+cat <<EOF > ${PLOT_FILE}
+set style fill solid border -1
+set term png size 1600, 600
+set boxwidth 0.4
+set autoscale
+set output "${PNG_FILE}"
+plot "${DATA_FILE}" using 1:3:xtic(2) with boxes
+EOF
+	gnuplot ${PLOT_FILE}
+}
+
+function plot_results {
+	plot_chart 'transactions' 'Transactions Total' 'Transactions:' 
+	plot_chart 'data_transferred' 'Data transferred' 'Data transferred:'
+	plot_chart 'response_time' 'Avg. response time' 'Response time:'
+	plot_chart 'transaction_rate' 'Transaction Rate' 'Transaction rate:'
+	plot_chart 'throughput' 'Throughput' 'Throughput:'
+	plot_chart 'concurrency' 'Concurrency' 'Concurrency:'
+}
+
 setup_tests
 run_tests
-#
-echo 'testing using siege is complete, results can be foun dhere:'
-ls -1 "${INSTALL_ROOT}"/*.txt
+plot_results
+
+echo 'testing using siege is complete, results can be found ${RESULT_DIR}:'
