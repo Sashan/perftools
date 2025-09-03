@@ -72,7 +72,7 @@ TEST_TIME=${BENCH_TEST_TIME:-'5M'}
 #
 # all nginx servers use the same configuration:
 #
-#	worker_processes  1;
+#	worker_processes  auto;
 #	events {
 #	    worker_connections  1024;
 #}
@@ -402,7 +402,7 @@ function config_nginx {
 	typeset SERVER_NAME="${BENCH_SERVER_NAME:-localhost}"
 
 cat <<EOF > "${CONF}"
-worker_processes  1;
+worker_processes  auto;
 events {
     worker_connections  1024;
 }
