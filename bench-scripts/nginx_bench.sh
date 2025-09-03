@@ -576,7 +576,7 @@ function plot_chart {
 	typeset PNG_FILE=${RESULT_DIR}/${BASENAME}.png
 
 	echo "#Library	${TITLE}" > ${DATA_FILE}
-	for LIBRARY in openssl-3.0 openssl-3.1 openssl-3.2 openssl-3.3 openssl-3.4 openssl-3.5 wolfssl-5.8.2 libressl-4.1.0 boringssl ; do
+	for LIBRARY in openssl-3.0 openssl-3.1 openssl-3.2 openssl-3.3 openssl-3.4 openssl-3.5 openssl-master wolfssl-5.8.2 libressl-4.1.0 boringssl ; do
 		RESULT_FILE="${RESULT_DIR}/${LIBRARY}.txt"
 		VALUE=`grep "^${MATCH}" ${RESULT_FILE} | cut -f 2 -d : | awk '{ print($1); }'`
 		echo "${COUNT}	${LIBRARY}	${VALUE}" >> ${DATA_FILE}
