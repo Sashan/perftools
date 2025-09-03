@@ -21,7 +21,7 @@ HTTPS_PORT=${BENCH_HTTPS_PORT:-'4430'}
 HTTP_PORT=${BENCH_HTTP_PORT:-'8080'}
 CERT_SUBJ=${BENCH_CERT_SUBJ:-'/CN=localhost'}
 CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'}
-APACHE_VERSION='2.4.65'
+TEST_TIME=${BENCH_TEST_TIME:-'5M'}
 
 function check_env {
 	if [[ ! -x "$(which git)" ]] ; then
@@ -118,7 +118,6 @@ function install_openssl {
 		--libdir="${INSTALL_ROOT}/${DIRNAME}/lib" || exit 1
 	make ${MAKE_OPTS} || exit 1
 	make ${MAKE_OPTS} install || exit 1
-	cd ${WORKSPACE_ROOT}
 }
 
 function install_wolfssl {
@@ -467,35 +466,33 @@ function run_test {
 		SSL_LIB='openssl-master'
 	fi
 	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
-	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/htdocs
+	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/html
 
 	#
 	# we always try to use siege from openssl master by default,
 	# if not found then we try the one which is installed for
 	# openssl version we'd like to test.
 	#
-	if [[ ! -x "{SIEGE}" ]] ; then
-		SIEGE="${INSTALL_ROOT}/${SSL_LIB}"/bin/siege
-	fi
-
 	if [[ ! -x "${SIEGE}" ]] ; then
-		echo "no siege found in ${SIEGE}"
+		echo "no ${SIEGE}"
 		exit 1
 	fi
 
 	rm -f siege_urls.txt
 	for i in `ls -1 ${HTDOCS}/*.txt` ; do
-		echo "https://localhost:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
+		echo "https://127.0.0.1:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
 	done
 
+	echo LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx
 	if [[ $? -ne 0 ]] ; then
 		echo "could not start ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx"
 		exit 1
 	fi
-	"${SIEGE}" -t 5M -b -f siege_urls.txt 2> "${INSTALL_ROOT}/${SSL_LIB}.txt"
-	rm siege_urls.txt
-	pkill nginx
+
+	LD_LIBRARY_PATH=${INSTALL_ROOT}/openssl-master/lib "${SIEGE}" -t ${TEST_TIME}  -b \
+	    -f siege_urls.txt 2> "${INSTALL_ROOT}/${SSL_LIB}.txt"
+	LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx -s quit
 }
 
 function setup_tests {
@@ -564,4 +561,4 @@ setup_tests
 run_tests
 #
 echo 'testing using siege is complete, results can be foun dhere:'
-ls -1 "${INSTALL_ROOT}/*.txt"
+ls -1 "${INSTALL_ROOT}"/*.txt
