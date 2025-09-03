@@ -25,6 +25,11 @@ CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'
 TEST_TIME=${BENCH_TEST_TIME:-'5M'}
 
 function check_env {
+	if [[ ! -x "$(which gnuplot)" ]] ; then
+		echo 'No gnuplot in PATH'
+		exit 1
+	fi
+
 	if [[ ! -x "$(which git)" ]] ; then
 		echo 'No git in PATH'
 		exit 1
@@ -35,18 +40,13 @@ function check_env {
 		exit 1
 	fi
 
-	if [[ ! -x `$(which cmake)` ]] ; then
+	if [[ ! -x "$(which cmake)" ]] ; then
 		echo 'No cmake in PATH'
 		exit 1
 	fi
 
 	if [[ ! -x "$(which wget)" ]] ; then
 		echo 'No wget in PATH'
-		exit 1
-	fi
-
-	if [[ ! -x "$(which openssl)" ]] ; then
-		echo 'No openssl in PATH'
 		exit 1
 	fi
 
@@ -85,6 +85,13 @@ function check_env {
 	touch "${INSTALL_ROOT}/${TEST_FILE}"
 	if [[ $? -ne 0 ]] ; then
 		echo "${INSTALL_ROOT} is not writable"
+		exit 1
+	fi
+
+	mkdir -p "${RESULT_DIR}"
+	touch "${RESULT_DIR}/${TEST_FILE}"
+	if [[ $? -ne 0 ]] ; then
+		echo "${RESULT_DIR} is not writable"
 		exit 1
 	fi
 
@@ -572,7 +579,7 @@ function plot_chart {
 	for LIBRARY in openssl-3.0 openssl-3.1 openssl-3.2 openssl-3.3 openssl-3.4 openssl-3.5 wolfssl-5.8.2 libressl-4.1.0 boringssl ; do
 		RESULT_FILE="${RESULT_DIR}/${LIBRARY}.txt"
 		VALUE=`grep "^${MATCH}" ${RESULT_FILE} | cut -f 2 -d : | awk '{ print($1); }'`
-		echo "${COUNT}	${LIBRARY}\t${VALUE}" >> ${DATA_FILE}
+		echo "${COUNT}	${LIBRARY}	${VALUE}" >> ${DATA_FILE}
 		COUNT=$((COUNT + 1))
 	done
 cat <<EOF > ${PLOT_FILE}
@@ -595,8 +602,9 @@ function plot_results {
 	plot_chart 'concurrency' 'Concurrency' 'Concurrency:'
 }
 
+check_env
 setup_tests
 run_tests
 plot_results
 
-echo 'testing using siege is complete, results can be found ${RESULT_DIR}:'
+echo "testing using siege is complete, results can be found ${RESULT_DIR}:"
