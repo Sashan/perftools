@@ -584,13 +584,20 @@ function install_siege {
 
 function run_test {
 	typeset SSL_LIB=$1
+	typeset HTTP='https'
 	typeset i=0
+	typeset PORT=${HTTPS_PORT}
 	if [[ -z "${SSL_LIB}" ]] ; then
 		SSL_LIB='openssl-master'
 	fi
-	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
+	if [[ "${SSL_LIB}" = 'nossl' ]] ; then
+		HTTP='http'
+		SSL_LIB='openssl-master'
+		RESULTS='nossl.txt'
+		PORT=${HTTP_PORT}
+	fi
 	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/html
-	typeset HTTP='https'
+	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
 	typeset RESULTS="${SSL_LIB}".txt
 
 	#
@@ -604,13 +611,8 @@ function run_test {
 	fi
 
 	rm -f siege_urls.txt
-	if [[ "${SSL_LIB}" = 'nossl' ]] ; then
-		HTTP='http'
-		SSL_LIB='openssl-master'
-		RESULTS='nossl.txt'
-	fi
 	for i in `ls -1 ${HTDOCS}/*.txt` ; do
-		echo "${HTTP}://${HOST}:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
+		echo "${HTTP}://${HOST}:${PORT}/`basename $i`" >> siege_urls.txt
 	done
 
 	#
@@ -733,7 +735,7 @@ function plot_results {
 }
 
 check_env
-setup_tests
+#setup_tests
 run_tests
 plot_results
 
