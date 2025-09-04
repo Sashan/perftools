@@ -603,9 +603,9 @@ function run_test {
 	fi
 
 	rm -f siege_urls.txt
-	rm -f siege_nossl_urls.txt
 	if [[ "${SSL_LIB}" = 'nossl' ]] ; then
 		HTTP='http'
+		SSL_LIB='openssl-master'
 	fi
 	for i in `ls -1 ${HTDOCS}/*.txt` ; do
 		echo "${HTTP}://${HOST}:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
