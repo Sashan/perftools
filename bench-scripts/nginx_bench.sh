@@ -591,6 +591,7 @@ function run_test {
 	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
 	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/html
 	typeset HTTP='https'
+	typeset RESULTS="${SSL_LIB}".txt
 
 	#
 	# we always try to use siege from openssl master by default,
@@ -606,6 +607,7 @@ function run_test {
 	if [[ "${SSL_LIB}" = 'nossl' ]] ; then
 		HTTP='http'
 		SSL_LIB='openssl-master'
+		RESULTS='nossl.txt'
 	fi
 	for i in `ls -1 ${HTDOCS}/*.txt` ; do
 		echo "${HTTP}://${HOST}:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
@@ -622,7 +624,7 @@ function run_test {
 	fi
 
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/openssl-master/lib "${SIEGE}" -t ${TEST_TIME}  -b \
-	    -f siege_urls.txt 2> "${RESULT_DIR}/${SSL_LIB}.txt"
+	    -f siege_urls.txt 2> "${RESULT_DIR}/${RESULTS}"
 
 	#
 	# stop nginx server
