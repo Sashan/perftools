@@ -23,6 +23,7 @@ HTTP_PORT=${BENCH_HTTP_PORT:-'8080'}
 CERT_SUBJ=${BENCH_CERT_SUBJ:-'/CN=localhost'}
 CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'}
 TEST_TIME=${BENCH_TEST_TIME:-'5M'}
+HOST=${BENCH_HOST:-'127.0.0.1'}
 
 #
 # the script builds various libssl libraries:
@@ -589,6 +590,7 @@ function run_test {
 	fi
 	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
 	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/html
+	typeset HTTP='https'
 
 	#
 	# we always try to use siege from openssl master by default,
@@ -601,10 +603,17 @@ function run_test {
 	fi
 
 	rm -f siege_urls.txt
+	rm -f siege_nossl_urls.txt
+	if [[ "${SSL_LIB}" = 'nossl' ]] ; then
+		HTTP='http'
+	fi
 	for i in `ls -1 ${HTDOCS}/*.txt` ; do
-		echo "https://127.0.0.1:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
+		echo "${HTTP}://${HOST}:${HTTPS_PORT}/`basename $i`" >> siege_urls.txt
 	done
 
+	#
+	# start nginx server
+	#
 	echo LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx
 	if [[ $? -ne 0 ]] ; then
@@ -614,6 +623,10 @@ function run_test {
 
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/openssl-master/lib "${SIEGE}" -t ${TEST_TIME}  -b \
 	    -f siege_urls.txt 2> "${RESULT_DIR}/${SSL_LIB}.txt"
+
+	#
+	# stop nginx server
+	#
 	LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/sbin/nginx -s quit
 }
 
@@ -690,7 +703,7 @@ function plot_chart {
 	typeset PNG_FILE=${RESULT_DIR}/${BASENAME}.png
 
 	echo "#Library	${TITLE}" > ${DATA_FILE}
-	for LIBRARY in openssl-3.0 openssl-3.1 openssl-3.2 openssl-3.3 openssl-3.4 openssl-3.5 openssl-master wolfssl-5.8.2 libressl-4.1.0 boringssl ; do
+	for LIBRARY in nossl openssl-3.0 openssl-3.1 openssl-3.2 openssl-3.3 openssl-3.4 openssl-3.5 openssl-master wolfssl-5.8.2 libressl-4.1.0 boringssl ; do
 		RESULT_FILE="${RESULT_DIR}/${LIBRARY}.txt"
 		VALUE=`grep "^${MATCH}" ${RESULT_FILE} | cut -f 2 -d : | awk '{ print($1); }'`
 		echo "${COUNT}	${LIBRARY}	${VALUE}" >> ${DATA_FILE}
