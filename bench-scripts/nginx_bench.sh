@@ -590,6 +590,7 @@ function run_test {
 	if [[ -z "${SSL_LIB}" ]] ; then
 		SSL_LIB='openssl-master'
 	fi
+	typeset RESULTS="${SSL_LIB}".txt
 	if [[ "${SSL_LIB}" = 'nossl' ]] ; then
 		HTTP='http'
 		SSL_LIB='openssl-master'
@@ -598,7 +599,6 @@ function run_test {
 	fi
 	typeset HTDOCS="${INSTALL_ROOT}/${SSL_LIB}"/html
 	typeset SIEGE="${INSTALL_ROOT}"/openssl-master/bin/siege
-	typeset RESULTS="${SSL_LIB}".txt
 
 	#
 	# we always try to use siege from openssl master by default,
@@ -735,7 +735,7 @@ function plot_results {
 }
 
 check_env
-#setup_tests
+setup_tests
 run_tests
 plot_results
 
