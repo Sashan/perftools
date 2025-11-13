@@ -14,6 +14,7 @@ INSTALL_ROOT=${BENCH_INSTALL_ROOT:-"/tmp/bench.binaries"}
 RESULT_DIR=${BENCH_RESULTS:-"${INSTALL_ROOT}/results"}
 WORKSPACE_ROOT=${BENCH_WORKSPACE_ROOT:-"/tmp/bench.workspace"}
 MAKE_OPTS=${BENCH_MAKE_OPTS}
+HAPROXY_BUILD_TARG=${BENCH_HAPROXY_BUILD_TARG:-'linux-glibc'}
 HAPROXY_NOSSL_PORT='42128'
 HAPROXY_C2P_PORT='42132'
 HAPROXY_P2S_PORT='42134'
@@ -23,13 +24,18 @@ CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'
 HOST=${BENCH_HOST:-'127.0.0.1'}
 HAPROXY_VERSION='v3.2.0'
 
+function install_httpterm {
+}
+
+function install_h1load {
+}
+
 function install_haproxy {
     typeset SSL_LIB=$1
     typeset VERSION=${HAPROXY_VERSION:-v3.2.0}
     typeset HAPROXY_REPO="https://github.com/haproxy/haproxy.git"
     typeset BASENAME='haproxy'
     typeset DIRNAME="${BASENAME}-${VERSION}"
-    typeset CERTDIR="${INSTALL_ROOT}/${SSL_LIB}/conf/certs"
 
     if [[ -z "${SSL_LIB}" ]] ; then
         SSL_LIB="openssl-master"
@@ -46,8 +52,9 @@ function install_haproxy {
         # haproxy does not have a configure script; only a big makefile
         make clean
         make ${MAKE_OPTS} \
-             TARGET=generic \
+             TARGET=${HAPROXY_BUILD_TARG} \
              USE_OPENSSL=1 \
+             USE_OPENSSL=USE_QUIC \
              SSL_INC="${INSTALL_ROOT}/${SSL_LIB}/include" \
              SSL_LIB="${INSTALL_ROOT}/${SSL_LIB}/lib" || exit 1
 
@@ -55,6 +62,11 @@ function install_haproxy {
              PREFIX="${INSTALL_ROOT}/${SSL_LIB}" || exit 1
     fi
 
+    cd ${WORKSPACE_ROOT}
+}
+
+function config_haproxy {
+    typeset CERTDIR="${INSTALL_ROOT}/${SSL_LIB}/conf/certs"
     mkdir -p ${CERTDIR}
 
     # now generate the certificates
