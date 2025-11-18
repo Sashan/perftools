@@ -56,9 +56,9 @@ function conf_siege_haproxy_cert {
 	    echo "Did not found siegerc. Siege should be installed first."
 	    exit 1
 	fi
-	echo "#haproxy" >> "${SIEGE_CONF}"
-	echo "ssl-cert = ${OPENSSL_DIR}/conf/certs/client_cert.pem" >> "${SIEGE_CONF}"
-	echo "ssl-key = ${OPENSSL_DIR}/conf/certs/client_key.pem" >> "${SIEGE_CONF}"
+    echo "#haproxy" >> "${SIEGE_CONF}"
+    echo "ssl-cert = ${OPENSSL_DIR}/conf/certs/client_cert.pem" >> "${SIEGE_CONF}"
+    echo "ssl-key = ${OPENSSL_DIR}/conf/certs/client_key.pem" >> "${SIEGE_CONF}"
 }
 
 #

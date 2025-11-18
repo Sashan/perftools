@@ -25,9 +25,62 @@ HOST=${BENCH_HOST:-'127.0.0.1'}
 HAPROXY_VERSION='v3.2.0'
 
 function install_httpterm {
+    typeset SSL_LIB=$1
+    #
+    # FixMe: with https://github.com/wtarreau/httpterm,
+    # once https://github.com/wtarreau/httpterm/pull/1
+    # will be merged
+    #
+    typeset HTTPTERM_REPO="https://github.com/sashan/httpterm"
+    typeset BASENAME='h1load'
+    typeset DIRNAME="${BASENAME}"
+    typeset SSL_CFLAGS=''
+    typeset SSL_LFLAGS=''
+
+    if [[ -z "${SSL_LIB}" ]] ; then
+        SSL_LIB="openssl-master"
+    fi
+
+    git clone -b fix.null-deref "${HTTPTERM_REPO}" "${DIRNAME}" || exit 1
+    cd ${DIRNAME} || exit 1
+    make || exit 1
+    install httpterm "${INSTALL_ROOT}/${SSL_LIB}/bin/httpterm" || exit 1
+    cd "${WORKSPACE_ROOT}"
 }
 
 function install_h1load {
+    typeset SSL_LIB=$1
+    typeset H1LOAD_REPO="https://github.com/wtarreau/h1load"
+    typeset BASENAME='h1load'
+    typeset DIRNAME="${BASENAME}"
+    typeset SSL_CFLAGS=''
+    typeset SSL_LFLAGS=''
+
+    if [[ -z "${SSL_LIB}" ]] ; then
+        SSL_LIB="openssl-master"
+    fi
+
+    echo $SSL_LIB | grep 'woflssl' > /dev/null
+    if [[ $? -eq 0 ]] ; then
+        #
+        # adjust flags for wolfssl
+	#
+	SSL_CFLAGS="-I${INSTALL_ROOT}/${SSL_LIB}/include"
+	SSL_CFLAGS="${SSL_CFLAGS} -include ${INSTALL_ROOT}/${SSL_LIB}/include/wolfssl/options.h"
+	SSL_LFLAGS="${INSTALL_ROOT}/${SSL_LIB}/lib -lwfolfssl -Wl,-rpath=${INSTALL_ROOT}/lib"
+    else
+	SSL_CFLAGS="-I${INSTALL_ROOT}/${SSL_LIB}/include"
+	SSL_LFLAGS="${INSTALL_ROOT}/${SSL_LIB}/lib -lssl -lcrypto"
+    fi
+    git clone "${H1LOAD_REPO}" "${DIRNAME}" || exit 1
+    cd ${DIRNAME} || exit 1
+    make || exit 1
+    install h1load "${INSTALL_ROOT}/${SSL_LIB}/bin/h1load" || exit 1
+    cd scripts
+    for i in *.sh ; do
+	install $i "${INSTALL_ROOT}/${SSL_LIB}/bin/$i" || exit 1
+    done
+    cd "${WORKSPACE_ROOT}"
 }
 
 function install_haproxy {
