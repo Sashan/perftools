@@ -10,6 +10,8 @@
 
 set -x
 
+. common_util.sh
+
 INSTALL_ROOT=${BENCH_INSTALL_ROOT:-"/tmp/bench.binaries"}
 RESULT_DIR=${BENCH_RESULTS:-"${INSTALL_ROOT}/results"}
 WORKSPACE_ROOT=${BENCH_WORKSPACE_ROOT:-"/tmp/bench.workspace"}
@@ -199,3 +201,63 @@ EOF
         done
     done
 }
+
+function setup_tests {
+    typeset i=0
+    install_openssl master
+    install_haproxy openssl-master
+    cd "${WORKSPACE_ROOT}"
+    clean_build
+
+    for i in 3.0 3.1 3.2 3.3 3.4 3.5 3.6 ; do
+        install_openssl openssl-$i ;
+        install_haproxy openssl-$i
+        install_haproxy openssl-$i
+        install_httpterm openssl-$i
+        install_h1load openssl-$i
+        cd "${WORKSPACE_ROOT}"
+        clean_build
+    done
+
+    install_openssl OpenSSL_1_1_1-stable
+    install_haproxy OpenSSL_1_1_1-stable
+    install_httpterm OpenSSL_1_1_1-stable
+    install_h1load OpenSSL_1_1_1-stable
+    cd "${WORKSPACE_ROOT}"
+    clean_build
+
+    install_wolfssl 5.8.2
+    install_haproxy wolfssl-5.8.2
+    install_haproxy wolfssl-5.8.2
+    install_httpterm wolfssl-5.8.2
+    install_h1load wolfssl-5.8.2
+    cd "${WORKSPACE_ROOT}"
+    clean_build
+
+    install_libressl 4.1.0
+    install_haproxy libressl-4.1.0
+    install_haproxy libressl-4.1.0
+    install_httpterm libressl-4.1.0
+    install_h1load libressl-4.1.0
+    cd "${WORKSPACE_ROOT}"
+    clean_build
+
+    install_boringssl
+    install_haproxy boringssl
+    install_haproxy boringssl
+    install_httpterm boringssl
+    install_h1load boringssl
+    cd "${WORKSPACE_ROOT}"
+    clean_build
+
+    install_aws_lc
+    install_haproxy aws-lc
+    install_haproxy aws-lc
+    install_httpterm aws-lc
+    install_h1load aws-lc
+    clean_build aws-lc
+}
+
+
+check_env
+setup_tests
