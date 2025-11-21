@@ -15,14 +15,17 @@ RESULT_DIR=${BENCH_RESULTS:-"${INSTALL_ROOT}/results"}
 WORKSPACE_ROOT=${BENCH_WORKSPACE_ROOT:-"/tmp/bench.workspace"}
 MAKE_OPTS=${BENCH_MAKE_OPTS}
 HAPROXY_BUILD_TARG=${BENCH_HAPROXY_BUILD_TARG:-'linux-glibc'}
-HAPROXY_NOSSL_PORT='42128'
-HAPROXY_C2P_PORT='42132'
-HAPROXY_P2S_PORT='42134'
-HAPROXY_C2S_PORT='42136'
 CERT_SUBJ=${BENCH_CERT_SUBJ:-'/CN=localhost'}
 CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'}
 HOST=${BENCH_HOST:-'127.0.0.1'}
+PORT_RSA_REUSE=${BENCH_PORT_RSA_REUSE:-7000}
+PORT_RSA=${BENCH_PORT_RSA:-7100}
+PORT_EC_REUSE=${BENCH_PORT_EC_REUSE:-7200}
+PORT_EC=${BENCH_PORT_EC:-7300}
 HAPROXY_VERSION='v3.2.0'
+CERT_SUBJ=${BENCH_CERT_SUBJ:-'/CN=localhost'}
+CERT_ALT_SUBJ=${BENCH_CERT_ALT_SUBJ:-'subjectAltName=DNS:localhost,IP:127.0.0.1'}
+HOST=${BENCH_HOST:-'127.0.0.1'}
 
 function install_httpterm {
     typeset SSL_LIB=$1
@@ -64,13 +67,13 @@ function install_h1load {
     if [[ $? -eq 0 ]] ; then
         #
         # adjust flags for wolfssl
-	#
-	SSL_CFLAGS="-I${INSTALL_ROOT}/${SSL_LIB}/include"
-	SSL_CFLAGS="${SSL_CFLAGS} -include ${INSTALL_ROOT}/${SSL_LIB}/include/wolfssl/options.h"
-	SSL_LFLAGS="${INSTALL_ROOT}/${SSL_LIB}/lib -lwfolfssl -Wl,-rpath=${INSTALL_ROOT}/lib"
+    #
+    SSL_CFLAGS="-I${INSTALL_ROOT}/${SSL_LIB}/include"
+    SSL_CFLAGS="${SSL_CFLAGS} -include ${INSTALL_ROOT}/${SSL_LIB}/include/wolfssl/options.h"
+    SSL_LFLAGS="${INSTALL_ROOT}/${SSL_LIB}/lib -lwfolfssl -Wl,-rpath=${INSTALL_ROOT}/lib"
     else
-	SSL_CFLAGS="-I${INSTALL_ROOT}/${SSL_LIB}/include"
-	SSL_LFLAGS="${INSTALL_ROOT}/${SSL_LIB}/lib -lssl -lcrypto"
+    SSL_CFLAGS="-I${INSTALL_ROOT}/${SSL_LIB}/include"
+    SSL_LFLAGS="${INSTALL_ROOT}/${SSL_LIB}/lib -lssl -lcrypto"
     fi
     git clone "${H1LOAD_REPO}" "${DIRNAME}" || exit 1
     cd ${DIRNAME} || exit 1
@@ -78,7 +81,7 @@ function install_h1load {
     install h1load "${INSTALL_ROOT}/${SSL_LIB}/bin/h1load" || exit 1
     cd scripts
     for i in *.sh ; do
-	install $i "${INSTALL_ROOT}/${SSL_LIB}/bin/$i" || exit 1
+    install $i "${INSTALL_ROOT}/${SSL_LIB}/bin/$i" || exit 1
     done
     cd "${WORKSPACE_ROOT}"
 }
@@ -118,83 +121,81 @@ function install_haproxy {
     cd ${WORKSPACE_ROOT}
 }
 
+#
+# function creates haproxy.conf which ishould be
+# identical to configuration used here [1].
+#
+# The configuration file defines 4 proxy variants:
+#   ssl-reause with rsa+dh certificate,
+#       https client connects to port 7020
+#
+#   no-ssl-reuse, with rsa+dh certificate,
+#       https client connects to port 7120
+#
+#   ssl-reuse with ecdsa-256 certificate,
+#       https client connects to port 7220
+#
+#   no-ssl-reuse with ecdsa-256 certificate,
+#       https client connects to port 7320
+#
+# [1] https://www.haproxy.com/blog/state-of-ssl-stacks
+#   search for 'daisy-chain'
+#
 function config_haproxy {
-    typeset CERTDIR="${INSTALL_ROOT}/${SSL_LIB}/conf/certs"
-    mkdir -p ${CERTDIR}
+    typeset SSL_LIB=$1
+    typeset RSACERTKEY=''
+    typeset HAPROXY_CONF='haproxy.conf'
+    typeset BASEPORT=''
+    typeset TOPPORT=''
+    typeset PORT=''
+    typeset SSL_REUSE=''
 
-    # now generate the certificates
-    echo "generating new certificates for haproxy"
-    OPENSSL_BIN="env LD_LIBRARY_PATH=${INSTALL_ROOT}/${SSL_LIB}/lib ${INSTALL_ROOT}/${SSL_LIB}/bin/openssl"
+    if [[ -z "${SSL_LIB}" ]] ; then
+        SSL_LIB'=master'
+    fi
 
-    # generating the key, cert of ca
-    $OPENSSL_BIN genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 -out "${CERTDIR}/ca_key.pem" || exit 1
-    $OPENSSL_BIN req -new -x509 -days 1 -key "${CERTDIR}/ca_key.pem" -out "${CERTDIR}/ca_cert.pem" -subj "/CN=Root CA" \
-        -addext "basicConstraints=critical,CA:true"  \
-        -addext "keyUsage=critical,keyCertSign,cRLSign" || exit 1
-    
-    # generating the client side
-    $OPENSSL_BIN genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 -out "${CERTDIR}/client_key.pem" || exit 1
-    $OPENSSL_BIN pkey -in "${CERTDIR}/client_key.pem" -pubout -out "${CERTDIR}/client_key_pub.pem" || exit 1
-    $OPENSSL_BIN req -new -out "${CERTDIR}/client_csr.pem" -subj "/CN=${HOST}" -key "${CERTDIR}/client_key.pem" \
-        -addext "${CERT_ALT_SUBJ}" \
-        -addext "keyUsage=critical,digitalSignature" || exit 1
-    $OPENSSL_BIN x509 -req -out "${CERTDIR}/client_cert.pem" -CAkey "${CERTDIR}/ca_key.pem" -CA "${CERTDIR}/ca_cert.pem" \
-        -days 1 -in "${CERTDIR}/client_csr.pem" -copy_extensions copy -ext "subjectAltName,keyUsage" \
-        -extfile <(printf "basicConstraints=critical,CA:false\nsubjectKeyIdentifier=none\n") || exit 1
+    HAPROXY_CONF=${INSTALL_ROOT}/${SSL_LIB}/${HAPROXY_CONF}
 
-    # generating the server side
-    $OPENSSL_BIN genpkey -algorithm rsa -pkeyopt rsa_keygen_bits:2048 -out "${CERTDIR}/server_key.pem" || exit 1
-    $OPENSSL_BIN pkey -in "${CERTDIR}/server_key.pem" -pubout -out "${CERTDIR}/server_key_pub.pem" || exit 1
-    $OPENSSL_BIN req -new -out "${CERTDIR}/server_csr.pem" -subj "/CN=${HOST}" -key "${CERTDIR}/server_key.pem" \
-        -addext "${CERT_ALT_SUBJ}" \
-        -addext "keyUsage=critical,digitalSignature" || exit 1
-    $OPENSSL_BIN x509 -req -out "${CERTDIR}/server_cert.pem" -CAkey "${CERTDIR}/ca_key.pem" -CA "${CERTDIR}/ca_cert.pem" \
-        -days 1 -in "${CERTDIR}/server_csr.pem" -copy_extensions copy -ext "subjectAltName,keyUsage" \
-        -extfile <(printf "subjectKeyIdentifier=none\n"
-                   printf "${CERT_ALT_SUBJ}\n"
-                   printf "basicConstraints=critical,CA:false\n"
-                   printf "keyUsage=critical,keyEncipherment\n") || exit 1
+cat <<EOF > ${HAPROXY_CONF}
+global
+	default-path config
+	tune.listener.default-shards by-thread
+	tune.idle-pool.shared off
+	ssl-default-bind-options ssl-min-ver TLSv1.3 ssl-max-ver TLSv1.3
+	ssl-server-verify none
 
-    # HAProxy PEM must be: server cert + server key (+ chain)
-    cat "${CERTDIR}/server_cert.pem" "${CERTDIR}/server_key.pem" "${CERTDIR}/ca_cert.pem" > "${CERTDIR}/haproxy_server.pem"
-
-    # setting up SSL Termination mode for now
-    # haproxy modes: encoding from client to haproxy, to server from haproxy, both
-    # the first needs a non TLS connection to the server - use the HTTP_PORT, otherwise use the HTTPS_PORT
-    cat <<EOF > "${INSTALL_ROOT}/${SSL_LIB}/conf/haproxy.cfg"
-defaults
-  timeout server 10s
-  timeout client 10s
-  timeout connect 10s
-
-frontend test_no_ssl
-  mode http
-  bind :${HAPROXY_NOSSL_PORT}
-  default_backend http_test
-
-frontend test_client2proxy
-  mode http
-  bind :${HAPROXY_C2P_PORT} ssl crt ${CERTDIR}/haproxy_server.pem ca-file ${CERTDIR}/ca_cert.pem verify required
-  default_backend http_test
-
-frontend test_proxy2server
-  mode http
-  bind :${HAPROXY_P2S_PORT}
-  default_backend https_test
-
-frontend test_client2server
-  mode http
-  bind :${HAPROXY_C2S_PORT} ssl crt ${CERTDIR}/haproxy_server.pem ca-file ${CERTDIR}/ca_cert.pem verify required
-  default_backend https_test
-
-backend http_test
-  mode http
-  balance random
-  server s1 ${HOST}:${HTTP_PORT}
-
-backend https_test
-  mode http
-  balance random
-  server s2 ${HOST}:${HTTPS_PORT} ssl verify required ca-file ${INSTALL_ROOT}/${SSL_LIB}/conf/server.crt
 EOF
+
+    for BASEPORT in ${PORT_RSA_REUSE} ${PORT_RSA} ${PORT_EC_REUSE} ${PORT_EC} ; do
+cat <<EOF >> ${HAPROXY_CONF}
+defaults ssl-reuse
+	mode http
+	http-reuse never
+	default-server max-reuse 0 ssl ssl-min-ver TLSv1.3 ssl-max-ver TLSv1.3
+	option httpclose
+	timeout client 10s
+	timeout server 10s
+	timeout connect 10s
+
+frontend port${BASENAME}
+	bind :${BASEPORT} ssl crt ${PROXYCERT}
+	http-request return status 200 content-type "text/plain" string "it works"
+
+EOF
+        BASEPORT=$(( ${BASEPORT} + 1))
+        TOPPORT=$(( ${BASEPORT} + 20))
+        if [[ ${BASEPORT} -eq ${PORT_RSA_REUSE} || ${BASEPORT} -eq ${PORT_EC_REUSE} ]] ; then
+            SSL_REUSE='no-ssl-reuse'
+        else
+            SSL_REUSE=''
+        fi
+        for PORT in $(seq ${BASEPORT} ${TOPPORT}) ; do
+cat <<EOF >> ${HAPROXY_CONF}
+listen port${PORT}
+	bind :${PORT} ssl crt ${PROXYCERT} ${SSL_REUSE}
+	server next ${HOST}:$(( ${PORT} - 1))
+
+EOF
+        done
+    done
 }

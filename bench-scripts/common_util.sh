@@ -336,15 +336,39 @@ function gen_certkey {
 	typeset SERVERCERT=$1
 	typeset SERVERKEY=$2
 	typeset OPENSSL="${INSTALL_ROOT}"/openssl-master/bin/openssl
+	typeset RSABITS=$3
 
+	if [[ -z "${RSABITS}" ]] ; then
+		RSABITS='4096'
+	fi
 	#
-	# generate self-signed cert with key
+	# generate self-signed cert with rsa key
 	# note this is hack because we always assume
 	# openssl-master is installed in INSTALL root
 	#
 	$(LD_LIBRARY_PATH="${INSTALL_ROOT}/openssl-master/lib" "${OPENSSL}" \
-	    req -x509 -newkey rsa:4096 -days 180 -noenc -keyout \
+	    req -x509 -newkey rsa:${RSABITS} -days 180 -noenc -keyout \
 	    "${SERVERKEY}" -out "${SERVERCERT}" -subj "${CERT_SUBJ}" \
 	    -addext "${CERT_ALT_SUBJ}") || exit 1
 }
 
+function gen_certkey_ec {
+	typeset SERVERCERT=$1
+	typeset SERVERKEY=$2
+	typeset OPENSSL="${INSTALL_ROOT}"/openssl-master/bin/openssl
+	typeset PKEYOPT=$3
+
+	if [[ -z "${PKEYOPT}" ]] ; then
+		PKEYOPT='ec_paramgen_curve:prime256v1'
+	fi
+
+	#
+	# generate self-signed cert with ecdsa key
+	# note this is hack because we always assume
+	# openssl-master is installed in INSTALL root
+	#
+	$(LD_LIBRARY_PATH="${INSTALL_ROOT}/openssl-master/lib" "${OPENSSL}" \
+	    req -x509 -newkey ec -pkeyopt ${PKEYOPT} -days 180 -noenc -keyout \
+	    "${SERVERKEY}" -out "${SERVERCERT}" -subj "${CERT_SUBJ}" \
+	    -addext "${CERT_ALT_SUBJ}") || exit 1
+}
