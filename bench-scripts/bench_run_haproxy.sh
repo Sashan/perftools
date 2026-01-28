@@ -179,6 +179,48 @@ function run_tests {
 }
 
 #
+# function uses gnuplot(1) to generate .png
+# with plot of performance data we got from
+# siege. It currently plots data for:
+# openssl-master, ..., openssl-3.0, openssl-1.1.1,
+# libressl, wolfssl, aws-lc
+#
+function hist_plot_siege {
+    typeset DATA_FILE=${1}
+    typeset OUT_FILE=${2}
+    typeset TITLE=${3}
+    typeset YLABEL=${4}
+
+    gnuplot << EOF
+set title "${TITLE}"
+set grid lt 0 lw 1 ls 1 lc rgb "#d7d7d7"
+set xlabel "Number of threads"
+set ylabel "${4}"
+set terminal pngcairo size 800,400 background rgb "#f8f8f8"
+set output "${OUT_FILE}"
+set key autotitle columnhead outside
+set auto x
+set style data histogram
+set style histogram cluster gap 1
+set style fill solid border -1
+set boxwidth 0.9
+plot \
+    "${DATA_FILE}" using 3:xticlabels(2) ti col, \
+    "${DATA_FILE}" using 4 ti col, \
+    "${DATA_FILE}" using 5 ti col, \
+    "${DATA_FILE}" using 6 ti col, \
+    "${DATA_FILE}" using 7 ti col, \
+    "${DATA_FILE}" using 8 ti col, \
+    "${DATA_FILE}" using 9 ti col, \
+    "${DATA_FILE}" using 10 ti col, \
+    "${DATA_FILE}" using 11 ti col, \
+    "${DATA_FILE}" using 12 ti col, \
+    "${DATA_FILE}" using 13 ti col, \
+    "${DATA_FILE}" using 14 ti col
+EOF
+}
+
+#
 # function merges siege tests to tables so results
 # can be compared plotted. The tests collect data
 # to files. Each file contains a combination of:
@@ -219,6 +261,7 @@ function merge_siege {
     typeset INPUT_FILE=''
     typeset OUTPUT_FILE=''
     typeset SAVE_IFS=''
+    typeset LINE=1
 
     for HANDSHAKE in siege-dh-rsa-noreuse siege-ec-dsa-noreuse ; do
         SAVE_IFS=${IFS}
@@ -234,15 +277,18 @@ function merge_siege {
             #
             # print header with column labels
             #
+            printf "line-no.\tThreads" >> ${OUTPUT_FILE}
             for SSL_LIB in `ssl_libs_haproxy` ; do
                 printf "\t${SSL_LIB}" >> ${OUTPUT_FILE}
             done
             printf '\n' >> ${OUTPUT_FILE}
+            LINE=1
             for PROCS in `procs` ; do
                 #
                 # row header with number CPUs used for test
                 #
-                printf "${PROCS}" >> ${OUTPUT_FILE}
+                printf "${LINE}\t${PROCS}" >> ${OUTPUT_FILE}
+                LINE=$(( ${LINE} + 1))
                 for SSL_LIB in `ssl_libs_haproxy` ; do
                     INPUT_FILE=${HANDSHAKE}-${PROCS}-${SSL_LIB}.out
                     INPUT_FILE=${RESULT_DIR}/${INPUT_FILE}
@@ -273,5 +319,67 @@ function merge_siege {
     done
 }
 
+#
+# siege charts to plot:
+#	Trnsaction Rate		(in trans/sec)
+#
+function create_siege_plots {
+    typeset RESULTS=${1}
+    typeset HANDSHAKE=''
+    typeset DATA_FILE=''
+    typeset OUT_FILE=''
+
+    for HANDSHAKE in siege-dh-rsa-noreuse siege-ec-dsa-noreuse ; do
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Transactions.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Transactions.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Number of transactions in ${TEST_TIME} secs (${HANDSHAKE})" \
+            "Transactions"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Data_transferred.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Data_transferred.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Bytes transferred in ${TEST_TIME} secs (${HANDSHAKE})" \
+            "Data Transfer [MB]"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Longest_transaction.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Longest_transaction.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Longest transaction (${HANDSHAKE})" \
+            "Duration [ms]"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Shortest_transaction.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Shortest_trnsaction.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Shortest transaction (${HANDSHAKE})" \
+            "Duration [ms]"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Response_time.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Response_time.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Average response time (${HANDSHAKE})" \
+            "time [ms]"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Throughput.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Throughput.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Throughput (${HANDSHAKE})" \
+            "MB/sec"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Throughput.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Throughput.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Throughput (${HANDSHAKE})" \
+            "MB/sec"
+
+        DATA_FILE=${RESULTS}/${HANDSHAKE}-Transaction_rate.merged
+        OUT_FILE=${RESULTS}/${HANDSHAKE}-Transaction_rate.png
+        hist_plot_siege ${DATA_FILE} ${OUT_FILE} \
+            "Transaction rate (${HANDSHAKE})" \
+            "trans/sec"
+    done
+}
+
 run_tests
 merge_siege ${RESULT_DIR}
+create_siege_plots ${RESULT_DIR}
